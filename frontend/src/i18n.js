@@ -40,6 +40,18 @@ export const translations = {
     weatherTitle: 'Atmospheric conditions',
     weatherDescription: 'Review the NASA POWER-based forecast for {location} and adjust the level of detail as needed.',
     selectedLocationWeather: 'the selected location',
+    multiLocationQueueTitle: 'Sequential location forecasts',
+    multiLocationQueueSubtitle: 'Each location is processed one after the other; results appear here as soon as they finish.',
+    multiLocationAwaiting: 'Set the date window and press “Load weather” to start the sequential forecasts.',
+    multiLocationStatusPending: 'Queued',
+    multiLocationStatusLoading: 'Analyzing…',
+    multiLocationStatusSuccess: 'Forecast ready',
+    multiLocationStatusError: 'Could not load data',
+    multiLocationPosition: 'Location {index} of {total}',
+    multiLocationCountLabel: '{count} locations in queue',
+    multiLocationSelectHint: 'Select a completed location below to view its detailed charts.',
+    multiLocationSelectLabel: 'View charts for {location}',
+    multiLocationActiveLabel: 'Showing charts for {location}',
     
     // Weather Form
     forecastMode: 'Forecast mode',
@@ -179,7 +191,7 @@ export const translations = {
     processing: 'Processando',
     
     // Empty State
-  emptyTitle: 'Briefing da missão: Will It Rain On My Parade?',
+    emptyTitle: 'Briefing da missão: Will It Rain On My Parade?',
     emptyDescription: 'Acesse décadas de observação da Terra da NASA para estimar a probabilidade de calor extremo, chuva, vento ou desconforto afetar seus planos com meses de antecedência.',
     emptyStepsTitle: 'Checklist de lançamento',
     emptySteps: [
@@ -200,6 +212,18 @@ export const translations = {
     weatherTitle: 'Condições atmosféricas',
     weatherDescription: 'Revise a previsão baseada em NASA POWER para {location} e ajuste o nível de detalhe conforme necessário.',
     selectedLocationWeather: 'a localização selecionada',
+    multiLocationQueueTitle: 'Fila sequencial de previsões',
+    multiLocationQueueSubtitle: 'Cada local é processado em sequência; os resultados aparecem aqui assim que cada etapa termina.',
+    multiLocationAwaiting: 'Defina o intervalo e pressione “Carregar clima” para iniciar as previsões sequenciais.',
+    multiLocationStatusPending: 'Na fila',
+    multiLocationStatusLoading: 'Analisando…',
+    multiLocationStatusSuccess: 'Previsão pronta',
+    multiLocationStatusError: 'Não foi possível carregar os dados',
+    multiLocationPosition: 'Local {index} de {total}',
+    multiLocationCountLabel: '{count} locais na fila',
+    multiLocationSelectHint: 'Selecione um local concluído abaixo para ver os gráficos detalhados.',
+    multiLocationSelectLabel: 'Ver gráficos para {location}',
+    multiLocationActiveLabel: 'Exibindo gráficos para {location}',
     
     // Weather Form
     forecastMode: 'Modo de previsão',

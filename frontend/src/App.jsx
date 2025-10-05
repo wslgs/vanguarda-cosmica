@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import jsPDF from 'jspdf';
 
 import {
@@ -313,7 +313,7 @@ function describePrecipitationLevel(value, rainFlag = false, t) {
   return { tone: 'good', icon: '☀️', text: t.noRain };
 }
 
-function buildChartInsight(values, type, formatter, t) {
+function buildChartInsight(values, metricKey, formatter, t) {
   const numeric = (values ?? []).filter((value) => value !== null && value !== undefined);
   if (numeric.length === 0) {
     return t.notEnoughData;
@@ -323,7 +323,7 @@ function buildChartInsight(values, type, formatter, t) {
   const max = Math.max(...numeric);
   const avg = numeric.reduce((sum, value) => sum + value, 0) / numeric.length;
 
-  if (type === 'temperature') {
+  if (metricKey === 'temperature') {
     if (max >= 34) {
       return t.sharpHeatSpikes.replace('{max}', formatter.format(max));
     }
@@ -333,7 +333,7 @@ function buildChartInsight(values, type, formatter, t) {
     return t.tempRange.replace('{min}', formatter.format(min)).replace('{max}', formatter.format(max));
   }
 
-  if (type === 'wind') {
+  if (metricKey === 'wind') {
     if (max >= 9) {
       return t.windPeaks.replace('{max}', formatter.format(max));
     }
@@ -402,6 +402,9 @@ export default function App() {
   });
   const [selectedLocations, setSelectedLocations] = useState([]);
   const [multipleWeatherResults, setMultipleWeatherResults] = useState([]);
+  const [geocodeResult, setGeocodeResult] = useState(null);
+  const [activeLocationId, setActiveLocationId] = useState(null);
+  const [lastActivationSource, setLastActivationSource] = useState(null);
   
   function handleLocaleChange(newLocale) {
     setLocale(newLocale);
@@ -433,6 +436,17 @@ export default function App() {
   }, [weatherMode, result, weatherResult]);
 
   const mapSrc = useMemo(() => buildMapSrc(result), [result]);
+  const hasWeatherContext = useMemo(() => Boolean(result || selectedLocations.length > 0), [result, selectedLocations]);
+  const weatherPanelLocationLabel = useMemo(
+    () => result?.formatted_address ?? selectedLocations[0]?.description ?? t.selectedLocationWeather,
+    [result, selectedLocations, t]
+  );
+  const isMultiLocationActive = selectedLocations.length > 0;
+  const hasQueuedMultiResults = multipleWeatherResults.length > 0;
+  const hasSelectableMultiResults = useMemo(
+    () => multipleWeatherResults.some((entry) => entry.status === 'success' && entry.weatherData),
+    [multipleWeatherResults]
+  );
   const weatherUnits = weatherResult?.meta?.units ?? {};
   const tempUnit = weatherUnits.T2M ?? '°C';
   const precipUnit = weatherUnits.PRECTOTCORR ?? weatherUnits.PRECTOT ?? 'mm';
@@ -456,7 +470,7 @@ export default function App() {
     return ordered.length > 0 ? ordered : null;
   }, [weatherResult]);
 
-  const hasIntervalSeries = Boolean(intervalSeries?.length);
+  const hasIntervalSeries = weatherMode === 'interval' && (intervalSeries?.length ?? 0) > 1;
   
   const intervalSeriesByDate = useMemo(() => {
     if (!intervalSeries) {
@@ -860,8 +874,9 @@ export default function App() {
         payload.place_id = selectedPlaceId;
       }
 
-      const data = await geocodeLocation(payload);
-      setResult(data);
+  const data = await geocodeLocation(payload);
+  setResult(data);
+  setGeocodeResult(data);
       setWeatherResult(null);
       setWeatherError(null);
       setSelectedPlaceId(data.place_id ?? selectedPlaceId ?? null);
@@ -872,7 +887,8 @@ export default function App() {
       setSessionToken(createSessionToken());
       setSuggestions([]);
     } catch (err) {
-      setResult(null);
+  setResult(null);
+  setGeocodeResult(null);
   setError(err.message ?? 'We couldn’t geocode the selected location.');
     } finally {
       setLoading(false);
@@ -991,6 +1007,7 @@ export default function App() {
         setWeatherResult(summary);
         setWeatherEndDate(rangeEnd);
       }
+      setGeocodeResult(result);
     } catch (err) {
   setWeatherResult(null);
   setWeatherError(err.message ?? 'We couldn’t retrieve the weather data.');
@@ -1007,6 +1024,69 @@ export default function App() {
     const formatted = NUMBER_FORMATTER.format(value);
     return unit ? `${formatted} ${unit}` : formatted;
   }
+
+  const activateMultiLocationResult = useCallback(
+    (entry, options = {}) => {
+      if (!entry || entry.status !== 'success' || !entry.weatherData) {
+        return;
+      }
+
+      setActiveLocationId(entry.place_id);
+      setLastActivationSource(options.source ?? 'user');
+
+      if (entry.geocode) {
+        setGeocodeResult(entry.geocode);
+        setResult({
+          ...entry.geocode,
+          formatted_address: entry.description ?? entry.geocode.formatted_address ?? entry.geocode.query ?? entry.geocode.name ?? entry.geocode.formatted_address,
+          place_id: entry.place_id,
+        });
+      } else {
+        setResult((prev) => {
+          if (prev?.place_id === entry.place_id) {
+            return prev;
+          }
+          return {
+            place_id: entry.place_id,
+            formatted_address: entry.description,
+            query: entry.description,
+          };
+        });
+        setGeocodeResult(null);
+      }
+
+      setWeatherResult(entry.weatherData);
+    },
+    [setResult]
+  );
+
+  useEffect(() => {
+    if (!isMultiLocationActive || multipleWeatherResults.length === 0) {
+      return;
+    }
+
+    const successfulEntries = multipleWeatherResults.filter(
+      (entry) => entry.status === 'success' && entry.weatherData
+    );
+
+    if (successfulEntries.length === 0) {
+      return;
+    }
+
+    if (
+      activeLocationId &&
+      successfulEntries.some((entry) => entry.place_id === activeLocationId)
+    ) {
+      return;
+    }
+
+    activateMultiLocationResult(successfulEntries[0], { source: 'auto' });
+  }, [
+    isMultiLocationActive,
+    multipleWeatherResults,
+    activeLocationId,
+    activateMultiLocationResult,
+  ]);
 
   const overallInsights = useMemo(() => {
     const sourceRecords = weatherResult?.series && weatherResult.series.length > 0
@@ -1061,6 +1141,17 @@ export default function App() {
 
     return messages;
   }, [weatherResult, t]);
+
+  const displayInsights = useMemo(() => {
+    if (!overallInsights || overallInsights.length < 2) {
+      return overallInsights ?? [];
+    }
+    const clone = overallInsights.slice();
+    const lastIndex = clone.length - 1;
+    const secondLastIndex = lastIndex - 1;
+    [clone[secondLastIndex], clone[lastIndex]] = [clone[lastIndex], clone[secondLastIndex]];
+    return clone;
+  }, [overallInsights]);
 
   const requestedRangeLabel = useMemo(() => {
     if (!weatherResult) {
@@ -1223,6 +1314,9 @@ export default function App() {
     setRepeatDateDraft(today);
     setSelectedLocations([]);
     setMultipleWeatherResults([]);
+    setGeocodeResult(null);
+    setActiveLocationId(null);
+    setLastActivationSource(null);
   }
 
   function handleAddLocation() {
@@ -1252,6 +1346,13 @@ export default function App() {
   function handleRemoveLocation(placeId) {
     setSelectedLocations((prev) => prev.filter((location) => location.place_id !== placeId));
     setMultipleWeatherResults((prev) => prev.filter((entry) => entry.place_id !== placeId));
+    setActiveLocationId((current) => {
+      if (current === placeId) {
+        setLastActivationSource(null);
+        return null;
+      }
+      return current;
+    });
   }
 
   async function handleMultipleLocationsSubmit(event) {
@@ -1263,6 +1364,8 @@ export default function App() {
 
     setWeatherResult(null);
     setWeatherError(null);
+    setActiveLocationId(null);
+    setLastActivationSource(null);
 
     const isIntervalMode = weatherMode === 'interval';
 
@@ -1348,7 +1451,7 @@ export default function App() {
         );
 
         try {
-          const geocodeData = await geocodeLocation({ place_id: location.place_id });
+    const geocodeData = await geocodeLocation({ place_id: location.place_id });
 
           if (!geocodeData?.latitude || !geocodeData?.longitude) {
             setMultipleWeatherResults((prev) =>
@@ -1424,6 +1527,9 @@ export default function App() {
                 : entry
             )
           );
+          if (i === 0) {
+            setGeocodeResult(geocodeData);
+          }
         } catch (err) {
           const message = err?.message || 'Failed to fetch weather data';
           setMultipleWeatherResults((prev) =>
@@ -1854,12 +1960,12 @@ export default function App() {
         </article>
       </section>
 
-      {result && (
+      {hasWeatherContext && (
         <section className="panel weather-panel">
           <header className="panel-header">
             <h2>{t.weatherTitle}</h2>
             <p>
-              {t.weatherDescription.replace('{location}', result.formatted_address ?? t.selectedLocationWeather)}
+              {t.weatherDescription.replace('{location}', weatherPanelLocationLabel)}
             </p>
           </header>
 
@@ -2019,6 +2125,141 @@ export default function App() {
             </button>
           </form>
 
+          {isMultiLocationActive && (
+            <div className="multi-location-progress" aria-live="polite">
+              <header className="multi-location-progress__header">
+                <div>
+                  <h3>{t.multiLocationQueueTitle}</h3>
+                  <p>{t.multiLocationQueueSubtitle}</p>
+                </div>
+                <span
+                  className="multi-location-progress__count"
+                  aria-label={t.multiLocationCountLabel.replace('{count}', selectedLocations.length)}
+                >
+                  {selectedLocations.length}
+                </span>
+              </header>
+
+              {hasQueuedMultiResults ? (
+                <>
+                  {hasSelectableMultiResults && (
+                    <p className="multi-location-progress__hint">{t.multiLocationSelectHint}</p>
+                  )}
+                  <div className="multi-location-progress__list">
+                    {multipleWeatherResults.map((entry, index) => {
+                      const status = entry.status ?? 'pending';
+                      const isProcessing = status === 'pending' || status === 'loading';
+                      const isSuccess = status === 'success' && entry.weatherData;
+                      const isError = status === 'error';
+                      const isActive = activeLocationId === entry.place_id;
+                      const isSelectable = isSuccess;
+                      const articleClassName = [
+                        'location-result',
+                        `location-result--${status}`,
+                        isSelectable ? 'location-result--selectable' : '',
+                        isActive ? 'location-result--active' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ');
+                      const statusLabel =
+                        status === 'success'
+                          ? t.multiLocationStatusSuccess
+                          : status === 'error'
+                          ? t.multiLocationStatusError
+                          : status === 'loading'
+                          ? t.multiLocationStatusLoading
+                          : t.multiLocationStatusPending;
+                      const positionLabel = t.multiLocationPosition
+                        .replace('{index}', index + 1)
+                        .replace('{total}', selectedLocations.length);
+                      const weatherData = entry.weatherData;
+                      const rangeLabel = weatherData ? formatWeatherTitle(weatherData, DATE_FORMATTER) : '';
+                      const granularityLabel = weatherData
+                        ? weatherData.granularity === 'hourly'
+                          ? t.hourlyData
+                          : t.dailyData
+                        : '';
+                      const isUserActivated = isActive && lastActivationSource === 'user';
+                      const ctaTemplate = isSelectable
+                        ? (isUserActivated ? t.multiLocationActiveLabel : t.multiLocationSelectLabel)
+                        : null;
+                      const ctaLabel = ctaTemplate
+                        ? ctaTemplate.replace('{location}', entry.description)
+                        : null;
+                      const handleActivate = () => {
+                        if (isSelectable) {
+                          activateMultiLocationResult(entry, { source: 'user' });
+                        }
+                      };
+                      const handleKeyDown = (event) => {
+                        if (!isSelectable) {
+                          return;
+                        }
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          activateMultiLocationResult(entry, { source: 'user' });
+                        }
+                      };
+
+                      return (
+                        <article
+                          key={entry.place_id}
+                          className={articleClassName}
+                          role={isSelectable ? 'button' : undefined}
+                          tabIndex={isSelectable ? 0 : undefined}
+                          onClick={isSelectable ? handleActivate : undefined}
+                          onKeyDown={isSelectable ? handleKeyDown : undefined}
+                          aria-pressed={isSelectable ? isActive : undefined}
+                        >
+                        <header className="location-result__header">
+                          <div>
+                            <h4>{entry.description}</h4>
+                            <p className="location-result__position">{positionLabel}</p>
+                            {rangeLabel && <p className="location-result__range">{rangeLabel}</p>}
+                            {granularityLabel && <p className="location-result__granularity">{granularityLabel}</p>}
+                            {ctaLabel && (
+                              <p
+                                className="location-result__cta"
+                                aria-live={isActive ? 'polite' : undefined}
+                              >
+                                {ctaLabel}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`location-result__status-badge status-${status}`}>
+                            {statusLabel}
+                          </span>
+                        </header>
+
+                        {isProcessing && (
+                          <div className="location-result__placeholder" aria-hidden="true">
+                            <div className="skeleton-line skeleton-line--wide" />
+                            <div className="skeleton-line" />
+                            <div className="skeleton-pill-row">
+                              <span className="skeleton-pill" />
+                              <span className="skeleton-pill" />
+                              <span className="skeleton-pill" />
+                            </div>
+                          </div>
+                        )}
+
+                        {isError && (
+                          <div className="location-result__error">
+                            <p>{statusLabel}</p>
+                            {entry.error && <small>{entry.error}</small>}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                  </div>
+                </>
+              ) : (
+                <p className="multi-location-progress__empty">{t.multiLocationAwaiting}</p>
+              )}
+            </div>
+          )}
+
           {weatherError && (
             <div className="notice error" role="alert">
               {weatherError}
@@ -2090,9 +2331,9 @@ export default function App() {
                 )}
               </header>
 
-              {overallInsights.length > 0 && (
+              {displayInsights.length > 0 && (
                 <ul className="feedback-grid compact" role="status" aria-live="polite">
-                  {overallInsights.map((insight, index) => (
+                  {displayInsights.map((insight, index) => (
                     <li key={`overview-${index}`} className={`feedback-bubble ${insight.tone}`}>
                       <span aria-hidden="true">{insight.icon}</span>
                       {insight.text}
