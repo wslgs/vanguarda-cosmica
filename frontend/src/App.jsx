@@ -98,167 +98,512 @@ function createSessionToken() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function generatePDF(weatherResult, geocodeResult, t) {
+function generatePDF({
+  weatherResult,
+  geocodeResult,
+  t,
+  locale = 'en',
+  filters = {},
+  insights = [],
+  selectedIntervalSeries = null,
+  selectedIntervalDateLabel = null,
+  units = {},
+}) {
   try {
-    console.log('Generating PDF...', { weatherResult, geocodeResult });
-    
-    const doc = new jsPDF();
-    
-    // Colors
-    const primaryColor = [169, 107, 255]; // Purple
+    if (!weatherResult) {
+      throw new Error('Missing weather data');
+    }
+
+    const localeTag = locale === 'pt' ? 'pt-BR' : 'en-US';
+    const numberFormatter = new Intl.NumberFormat(localeTag, { maximumFractionDigits: 1 });
+    const dateFormatter = new Intl.DateTimeFormat(localeTag, { dateStyle: 'long', timeZone: 'UTC' });
+
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+    const primaryColor = [169, 107, 255];
     const textColor = [40, 40, 60];
     const lightGray = [200, 200, 210];
-    
+    const subtleRow = [245, 245, 250];
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginLeft = 20;
+    const marginRight = 20;
+    const contentWidth = pageWidth - marginLeft - marginRight;
     let yPos = 20;
-    
-    // Header with gradient effect
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.rect(0, 0, 210, 40, 'F');
-    
-    // Title
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(24);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Weather Forecast Report', 105, 20, { align: 'center' });
-    
-    // Location
-    if (geocodeResult?.formatted_address) {
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'normal');
-      doc.text(geocodeResult.formatted_address, 105, 30, { align: 'center' });
-    }
-    
-    yPos = 50;
-    
-    // Coordinates
-    doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Coordinates: ${geocodeResult?.latitude?.toFixed(4)}, ${geocodeResult?.longitude?.toFixed(4)}`, 20, yPos);
-    yPos += 7;
-    
-    // Date generated
-    const now = new Date();
-    doc.text(`Generated: ${now.toLocaleString('en-US', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })}`, 20, yPos);
-    yPos += 10;
-    
-    // AI Badge if applicable
-    if (weatherResult.ai_prediction) {
-      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(9);
-      doc.roundedRect(20, yPos - 4, 60, 7, 2, 2, 'F');
-      const executionTime = weatherResult.ai_prediction.execution_time 
-        ? ` (${weatherResult.ai_prediction.execution_time}s)` 
-        : '';
-      doc.text(`AI-generated prediction${executionTime}`, 22, yPos);
-      yPos += 12;
-      doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-    } else {
-      yPos += 5;
-    }
-    
-    // Divider line
-    doc.setDrawColor(lightGray[0], lightGray[1], lightGray[2]);
-    doc.setLineWidth(0.5);
-    doc.line(20, yPos, 190, yPos);
-    yPos += 10;
-    
-    // Weather Data
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Weather Metrics', 20, yPos);
-    yPos += 8;
-    
-    // Table header
-    doc.setFillColor(245, 245, 250);
-    doc.rect(20, yPos - 5, 170, 8, 'F');
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Date/Time', 22, yPos);
-    doc.text('Temperature', 70, yPos);
-    doc.text('Wind', 115, yPos);
-    doc.text('Precipitation', 145, yPos);
-    yPos += 10;
-    
-    // Data rows
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    
-    const dataToShow = weatherResult.data || [];
-    dataToShow.forEach((entry, index) => {
-      if (yPos > 270) {
+
+    const ensureSpace = (needed = 12) => {
+      if (yPos + needed > 275) {
         doc.addPage();
         yPos = 20;
       }
-      
-      // Alternate row background
-      if (index % 2 === 0) {
-        doc.setFillColor(250, 250, 252);
-        doc.rect(20, yPos - 5, 170, 8, 'F');
-      }
-      
-      // Date/Time
-      const dateStr = entry.date || '-';
-      const timeStr = entry.hour !== null && entry.hour !== undefined 
-        ? ` ${String(entry.hour).padStart(2, '0')}:00`
+    };
+
+    const resolvedLocation = filters.locationName
+      ?? geocodeResult?.formatted_address
+      ?? geocodeResult?.query
+      ?? '';
+
+    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.rect(0, 0, pageWidth, 40, 'F');
+
+    doc.setFontSize(24);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text(t.pdfReportTitle, pageWidth / 2, 20, { align: 'center' });
+
+    if (resolvedLocation) {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      doc.text(resolvedLocation, pageWidth / 2, 30, { align: 'center' });
+    }
+
+    yPos = 50;
+    doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+
+    if (geocodeResult?.latitude !== undefined && geocodeResult?.longitude !== undefined) {
+      const coordinateText = t.pdfCoordinates
+        .replace('{lat}', geocodeResult.latitude.toFixed(4))
+        .replace('{lon}', geocodeResult.longitude.toFixed(4));
+      doc.text(coordinateText, marginLeft, yPos);
+      yPos += 7;
+    }
+
+    const timestamp = new Intl.DateTimeFormat(localeTag, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date());
+    doc.text(t.pdfGeneratedAt.replace('{timestamp}', timestamp), marginLeft, yPos);
+    yPos += 10;
+
+    if (weatherResult.ai_prediction) {
+      ensureSpace(12);
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(9);
+      const execution = weatherResult.ai_prediction.execution_time
+        ? ` (${weatherResult.ai_prediction.execution_time}s)`
         : '';
-      doc.text(`${dateStr}${timeStr}`, 22, yPos);
-      
-      // Temperature
-      const temp = entry.t2m !== null ? `${entry.t2m.toFixed(1)}°C` : '-';
-      const tempMax = weatherResult.granularity === 'daily' && entry.t2m_max !== null 
-        ? ` (H:${entry.t2m_max.toFixed(1)}°` 
-        : '';
-      const tempMin = weatherResult.granularity === 'daily' && entry.t2m_min !== null 
-        ? ` L:${entry.t2m_min.toFixed(1)}°)` 
-        : '';
-      doc.text(`${temp}${tempMax}${tempMin}`, 70, yPos);
-      
-      // Wind
-      const wind = entry.ws10m !== null ? `${entry.ws10m.toFixed(1)} m/s` : '-';
-      doc.text(wind, 115, yPos);
-      
-      // Precipitation
-      const precip = entry.precip_mm !== null ? `${entry.precip_mm.toFixed(1)} mm` : '-';
-      doc.text(precip, 145, yPos);
-      
+      const badgeText = `${t.aiGeneratedPrediction}${execution}`;
+      const badgeWidth = doc.getTextWidth(badgeText) + 6;
+      doc.roundedRect(marginLeft, yPos - 4, badgeWidth, 7, 2, 2, 'F');
+      doc.text(badgeText, marginLeft + 3, yPos + 1.5);
+      doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+      yPos += 12;
+    }
+
+    doc.setDrawColor(lightGray[0], lightGray[1], lightGray[2]);
+    doc.setLineWidth(0.5);
+    doc.line(marginLeft, yPos, pageWidth - marginRight, yPos);
+    yPos += 10;
+
+    const filterItems = Array.isArray(filters.items) ? filters.items.filter((item) => item?.value) : [];
+    if (filterItems.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text(t.pdfFiltersTitle, marginLeft, yPos);
       yPos += 8;
-      
-      // Accuracy (if AI prediction)
-      if (entry.accuracy) {
-        doc.setFontSize(7);
-        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-        
-        const accT2M = entry.accuracy.T2M ? `T:${entry.accuracy.T2M.toFixed(0)}%` : '';
-        const accWS = entry.accuracy.WS10M ? `W:${entry.accuracy.WS10M.toFixed(0)}%` : '';
-        const accPR = entry.accuracy.PRECTOTCORR ? `P:${entry.accuracy.PRECTOTCORR.toFixed(0)}%` : '';
-        
-        doc.text(`Accuracy: ${accT2M} ${accWS} ${accPR}`, 22, yPos);
-        doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+
+      filterItems.forEach(({ label, value }) => {
+        if (!value) {
+          return;
+        }
+        ensureSpace(15);
+        const formattedValue = doc.splitTextToSize(String(value), contentWidth - 45);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text(`${label}:`, marginLeft, yPos);
+        doc.setFont('helvetica', 'normal');
+        doc.text(formattedValue, marginLeft + 40, yPos);
+        const blockHeight = formattedValue.length * 5;
+        yPos += blockHeight + 4;
+      });
+
+      yPos += 4;
+    }
+
+    if (insights && insights.length > 0) {
+      ensureSpace(18);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text(t.pdfInsightsTitle, marginLeft, yPos);
+      yPos += 8;
+
+      const insightStyles = {
+        alert: {
+          fill: [255, 244, 244],
+          border: [255, 145, 145],
+          text: [120, 35, 35],
+          indicator: [240, 80, 80],
+        },
+        warning: {
+          fill: [255, 248, 235],
+          border: [255, 198, 111],
+          text: [115, 70, 10],
+          indicator: [235, 150, 45],
+        },
+        good: {
+          fill: [236, 250, 243],
+          border: [136, 214, 170],
+          text: [35, 90, 55],
+          indicator: [45, 140, 90],
+        },
+        info: {
+          fill: [238, 243, 255],
+          border: [150, 170, 255],
+          text: [45, 65, 120],
+          indicator: [85, 120, 210],
+        },
+        default: {
+          fill: [245, 245, 250],
+          border: [200, 200, 210],
+          text: [60, 60, 80],
+          indicator: [120, 120, 140],
+        },
+      };
+
+      const toneLabels = {
+        alert: t.pdfInsightToneAlert,
+        warning: t.pdfInsightToneWarning,
+        good: t.pdfInsightToneGood,
+        info: t.pdfInsightToneInfo,
+      };
+
+      const cardPaddingX = 10;
+      const cardPaddingY = 6;
+      const labelLineHeight = 5;
+      const textLineHeight = 4.6;
+      const indicatorRadius = 2.5;
+
+      insights.forEach(({ text, tone }) => {
+        if (!text) {
+          return;
+        }
+
+        const style = insightStyles[tone] ?? insightStyles.default;
+        const toneLabel = toneLabels[tone] ?? toneLabels.info ?? t.pdfInsightToneInfo;
+        const bodyLines = doc.splitTextToSize(text, contentWidth - cardPaddingX * 2);
+        const textBlockHeight = bodyLines.length * textLineHeight;
+  const cardHeight = cardPaddingY * 2 + labelLineHeight + textBlockHeight + 2;
+
+  ensureSpace(cardHeight + 6);
+
+  const cardTop = yPos;
+  const labelTop = cardTop + cardPaddingY;
+
+  doc.setFillColor(style.fill[0], style.fill[1], style.fill[2]);
+  doc.setDrawColor(style.border[0], style.border[1], style.border[2]);
+  doc.roundedRect(marginLeft, cardTop, contentWidth, cardHeight, 3, 3, 'FD');
+
+        const indicatorX = marginLeft + cardPaddingX;
+        const indicatorY = labelTop + labelLineHeight / 2;
+        doc.setFillColor(style.indicator[0], style.indicator[1], style.indicator[2]);
+        doc.circle(indicatorX, indicatorY, indicatorRadius, 'F');
+
+        const labelX = indicatorX + indicatorRadius + 3.5;
+        const labelY = labelTop;
+        doc.setTextColor(style.text[0], style.text[1], style.text[2]);
+        doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
-        yPos += 6;
+        doc.text(String(toneLabel).toUpperCase(), labelX, labelY, { baseline: 'top' });
+
+        const textX = marginLeft + cardPaddingX;
+  const textY = labelTop + labelLineHeight + 2;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.text(bodyLines, textX, textY, { baseline: 'top' });
+
+        yPos += cardHeight + 6;
+
+        doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+        doc.setDrawColor(lightGray[0], lightGray[1], lightGray[2]);
+      });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      yPos += 2;
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text(t.pdfMetricsTitle, marginLeft, yPos);
+    yPos += 8;
+
+    const displayData = Array.isArray(weatherResult.data) ? weatherResult.data : [];
+    const temperatureUnit = units.T2M ?? '°C';
+    const windUnit = units.WS10M ?? 'm/s';
+    const precipUnit = units.PRECTOTCORR ?? units.PRECTOT ?? 'mm';
+    const isHourlyGranularity = weatherResult.granularity === 'hourly';
+
+    const dateColumnX = marginLeft + 2;
+    const tempColumnX = marginLeft + 70;
+    const windColumnX = marginLeft + 115;
+    const precipColumnX = marginLeft + 155;
+
+    const drawMetricsHeader = () => {
+      doc.setFillColor(subtleRow[0], subtleRow[1], subtleRow[2]);
+      doc.rect(marginLeft, yPos - 5, contentWidth, 8, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text(t.date, dateColumnX, yPos);
+      doc.text(`${t.temperature} (${temperatureUnit})`, tempColumnX, yPos);
+      doc.text(`${t.wind10m} (${windUnit})`, windColumnX, yPos);
+      doc.text(`${t.precipitation} (${precipUnit})`, precipColumnX, yPos);
+      yPos += 9;
+    };
+
+    if (displayData.length === 0) {
+      const noDataLines = doc.splitTextToSize(t.pdfNoData, contentWidth);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(noDataLines, marginLeft, yPos);
+      yPos += noDataLines.length * 5 + 6;
+    } else {
+      drawMetricsHeader();
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+
+      displayData.forEach((entry, index) => {
+        ensureSpace(18);
+
+        const rowTop = yPos - 4;
+        const rowHeightEstimate = 10;
+        if (index % 2 === 0) {
+          doc.setFillColor(250, 250, 252);
+          doc.rect(marginLeft, rowTop, contentWidth, rowHeightEstimate + 2, 'F');
+        }
+
+        const formatHour = (value) => {
+          if (value === null || value === undefined) {
+            return null;
+          }
+          return `${String(value).padStart(2, '0')}h`;
+        };
+
+        const entryDate = entry.date ? toUTCDate(entry.date) : null;
+        const dateLabel = entryDate ? dateFormatter.format(entryDate) : '-';
+        const hourStart = formatHour(entry.hour);
+        const hourEnd = formatHour(entry.hour_end);
+        const hourLabel = isHourlyGranularity
+          ? hourStart && hourEnd && hourEnd !== hourStart
+            ? `${hourStart} → ${hourEnd}`
+            : hourStart ?? hourEnd ?? '-'
+          : null;
+
+        const dateLines = isHourlyGranularity && hourLabel
+          ? doc.splitTextToSize(`${dateLabel}\n${t.hour}: ${hourLabel}`, 60)
+          : doc.splitTextToSize(dateLabel, 60);
+
+        const temperatureParts = [];
+        if (entry.t2m !== null && entry.t2m !== undefined) {
+          temperatureParts.push(`${numberFormatter.format(entry.t2m)} ${temperatureUnit}`);
+        }
+        if (entry.t2m_max !== null && entry.t2m_max !== undefined) {
+          temperatureParts.push(`${t.high}: ${numberFormatter.format(entry.t2m_max)} ${temperatureUnit}`);
+        }
+        if (entry.t2m_min !== null && entry.t2m_min !== undefined) {
+          temperatureParts.push(`${t.low}: ${numberFormatter.format(entry.t2m_min)} ${temperatureUnit}`);
+        }
+        const temperatureText = temperatureParts.length > 0 ? temperatureParts.join('\n') : '-';
+        const temperatureLines = doc.splitTextToSize(temperatureText, 40);
+
+        const windText = entry.ws10m !== null && entry.ws10m !== undefined
+          ? `${numberFormatter.format(entry.ws10m)} ${windUnit}`
+          : '-';
+        const windLines = doc.splitTextToSize(windText, 30);
+
+        const precipText = entry.precip_mm !== null && entry.precip_mm !== undefined
+          ? `${numberFormatter.format(entry.precip_mm)} ${precipUnit}`
+          : '-';
+        const precipLines = doc.splitTextToSize(precipText, 30);
+
+        const maxLines = Math.max(dateLines.length, temperatureLines.length, windLines.length, precipLines.length);
+        const rowHeight = maxLines * 5 + 2;
+
+        doc.text(dateLines, dateColumnX, yPos);
+        doc.text(temperatureLines, tempColumnX, yPos);
+        doc.text(windLines, windColumnX, yPos);
+        doc.text(precipLines, precipColumnX, yPos);
+
+        yPos += rowHeight;
+
+        if (entry.accuracy) {
+          doc.setFontSize(7);
+          doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+          const accParts = [];
+          if (entry.accuracy.T2M) {
+            accParts.push(`T:${entry.accuracy.T2M.toFixed(0)}%`);
+          }
+          if (entry.accuracy.WS10M) {
+            accParts.push(`W:${entry.accuracy.WS10M.toFixed(0)}%`);
+          }
+          if (entry.accuracy.PRECTOTCORR) {
+            accParts.push(`P:${entry.accuracy.PRECTOTCORR.toFixed(0)}%`);
+          }
+          if (accParts.length > 0) {
+            doc.text(`Accuracy: ${accParts.join(' ')}`, dateColumnX, yPos);
+            yPos += 4;
+          }
+          doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+          doc.setFontSize(9);
+        }
+
+        if (yPos + 10 > 275 && index < displayData.length - 1) {
+          doc.addPage();
+          yPos = 20;
+          drawMetricsHeader();
+        }
+      });
+    }
+
+    const summaryLines = [];
+    const temperatureValues = displayData
+      .map((entry) => (entry.t2m !== null && entry.t2m !== undefined ? entry.t2m : null))
+      .filter((value) => value !== null);
+    const windValues = displayData
+      .map((entry) => (entry.ws10m !== null && entry.ws10m !== undefined ? entry.ws10m : null))
+      .filter((value) => value !== null);
+    const precipitationValues = displayData
+      .map((entry) => (entry.precip_mm !== null && entry.precip_mm !== undefined ? entry.precip_mm : null))
+      .filter((value) => value !== null);
+
+    if (temperatureValues.length > 0) {
+      const avgTemp = temperatureValues.reduce((sum, value) => sum + value, 0) / temperatureValues.length;
+      const maxTemp = Math.max(...temperatureValues);
+      const minTemp = Math.min(...temperatureValues);
+      summaryLines.push(
+        t.pdfSummaryAvgTemperature.replace('{value}', `${numberFormatter.format(avgTemp)} ${temperatureUnit}`)
+      );
+      summaryLines.push(
+        t.pdfSummaryMaxTemperature.replace('{value}', `${numberFormatter.format(maxTemp)} ${temperatureUnit}`)
+      );
+      summaryLines.push(
+        t.pdfSummaryMinTemperature.replace('{value}', `${numberFormatter.format(minTemp)} ${temperatureUnit}`)
+      );
+    }
+
+    if (windValues.length > 0) {
+      const avgWind = windValues.reduce((sum, value) => sum + value, 0) / windValues.length;
+      summaryLines.push(
+        t.pdfSummaryAvgWind.replace('{value}', `${numberFormatter.format(avgWind)} ${windUnit}`)
+      );
+    }
+
+    if (precipitationValues.length > 0) {
+      const totalPrecip = precipitationValues.reduce((sum, value) => sum + value, 0);
+      summaryLines.push(
+        t.pdfSummaryTotalPrecipitation.replace('{value}', `${numberFormatter.format(totalPrecip)} ${precipUnit}`)
+      );
+    }
+
+    if (summaryLines.length > 0) {
+      ensureSpace(summaryLines.length * 5 + 10);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(t.pdfSummaryTitle, marginLeft, yPos);
+      yPos += 7;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      summaryLines.forEach((line) => {
+        doc.text(line, marginLeft, yPos);
+        yPos += 5;
+      });
+      yPos += 4;
+    }
+
+    const hourlySeries = Array.isArray(selectedIntervalSeries) ? selectedIntervalSeries : [];
+    if (hourlySeries.length > 0) {
+      ensureSpace(25);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text(t.pdfHourlyBreakdownTitle, marginLeft, yPos);
+      yPos += 7;
+
+      if (selectedIntervalDateLabel) {
+        const subtitle = t.pdfHourlyBreakdownSubtitle.replace('{date}', selectedIntervalDateLabel);
+        const lines = doc.splitTextToSize(subtitle, contentWidth);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.text(lines, marginLeft, yPos);
+        yPos += lines.length * 5 + 4;
       }
-    });
-    
-    // Footer
-    yPos = 285;
+
+      const hourColumnX = marginLeft + 2;
+      const tempHourColumnX = marginLeft + 55;
+      const windHourColumnX = marginLeft + 100;
+      const precipHourColumnX = marginLeft + 145;
+
+      const drawHourlyHeader = () => {
+        doc.setFillColor(subtleRow[0], subtleRow[1], subtleRow[2]);
+        doc.rect(marginLeft, yPos - 5, contentWidth, 8, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(t.hour, hourColumnX, yPos);
+        doc.text(`${t.temperature} (${temperatureUnit})`, tempHourColumnX, yPos);
+        doc.text(`${t.wind10m} (${windUnit})`, windHourColumnX, yPos);
+        doc.text(`${t.precipitation} (${precipUnit})`, precipHourColumnX, yPos);
+        yPos += 9;
+      };
+
+      drawHourlyHeader();
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+
+      hourlySeries.forEach((entry, index) => {
+        ensureSpace(15);
+        if (index % 2 === 0) {
+          doc.setFillColor(250, 250, 252);
+          doc.rect(marginLeft, yPos - 4, contentWidth, 10, 'F');
+        }
+
+        const formatHour = (value) => {
+          if (value === null || value === undefined) {
+            return null;
+          }
+          return `${String(value).padStart(2, '0')}h`;
+        };
+
+        const hourStartLabel = formatHour(entry.hour);
+        const hourEndLabel = formatHour(entry.hour_end);
+        const hourDisplay = hourStartLabel && hourEndLabel && hourEndLabel !== hourStartLabel
+          ? `${hourStartLabel} → ${hourEndLabel}`
+          : hourStartLabel ?? hourEndLabel ?? '-';
+
+        doc.text(hourDisplay, hourColumnX, yPos);
+
+        const tempText = entry.t2m !== null && entry.t2m !== undefined
+          ? `${numberFormatter.format(entry.t2m)} ${temperatureUnit}`
+          : '-';
+        doc.text(tempText, tempHourColumnX, yPos);
+
+        const windText = entry.ws10m !== null && entry.ws10m !== undefined
+          ? `${numberFormatter.format(entry.ws10m)} ${windUnit}`
+          : '-';
+        doc.text(windText, windHourColumnX, yPos);
+
+        const precipText = entry.precip_mm !== null && entry.precip_mm !== undefined
+          ? `${numberFormatter.format(entry.precip_mm)} ${precipUnit}`
+          : '-';
+        doc.text(precipText, precipHourColumnX, yPos);
+
+        yPos += 7;
+      });
+    }
+
+    const fileDate = new Date().toISOString().split('T')[0];
+    const sourceLabel = weatherResult.ai_prediction ? t.pdfDataSourceAi : t.pdfDataSourceStandard;
+
+    doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
-    doc.text('Generated by Vanguarda Cósmica Weather System', 105, yPos, { align: 'center' });
-    doc.text(`Data source: ${weatherResult.ai_prediction ? 'AI Prediction' : 'NASA POWER'}`, 105, yPos + 4, { align: 'center' });
-    
-    // Save
-    const filename = `weather-forecast-${now.toISOString().split('T')[0]}.pdf`;
-    doc.save(filename);
-    
-    console.log('PDF generated successfully:', filename);
+    doc.text(t.pdfFooterSignature, pageWidth / 2, 285, { align: 'center' });
+    doc.text(t.pdfFooterDataSource.replace('{source}', sourceLabel), pageWidth / 2, 289, { align: 'center' });
+
+    doc.save(`weather-forecast-${fileDate}.pdf`);
   } catch (error) {
     console.error('Error generating PDF:', error);
     alert(t.pdfError);
@@ -545,10 +890,13 @@ export default function App() {
       datasets: {
         temperature: selectedIntervalSeries.map((entry) => (entry.t2m ?? null)),
         temperatureFlags: selectedIntervalSeries.map((entry) => entry.flags?.heat_caution ?? false),
+        temperatureAccuracy: selectedIntervalSeries.map((entry) => entry.accuracy?.T2M ?? null),
         precipitation: selectedIntervalSeries.map((entry) => entry.precip_mm ?? 0),
         precipitationFlags: selectedIntervalSeries.map((entry) => entry.flags?.rain_risk ?? false),
+        precipitationAccuracy: selectedIntervalSeries.map((entry) => entry.accuracy?.PRECTOTCORR ?? entry.accuracy?.PRECTOT ?? null),
         wind: selectedIntervalSeries.map((entry) => (entry.ws10m ?? null)),
         windFlags: selectedIntervalSeries.map((entry) => entry.flags?.wind_caution ?? false),
+        windAccuracy: selectedIntervalSeries.map((entry) => entry.accuracy?.WS10M ?? null),
       },
     };
   }, [selectedIntervalSeries]);
@@ -557,6 +905,38 @@ export default function App() {
     if (!hasIntervalSeries || !intervalChartData || !selectedIntervalSeries) {
       return null;
     }
+
+    const tooltipCallbacks = {
+      label(context) {
+        const datasetLabel = context.dataset?.label ?? '';
+        const rawValue = context.parsed?.y ?? context.parsed ?? null;
+        const unitLabel = context.dataset?.unitLabel ?? '';
+        const formattedValue = rawValue !== null && rawValue !== undefined
+          ? NUMBER_FORMATTER.format(rawValue)
+          : context.formattedValue;
+
+        let line = '';
+        if (datasetLabel) {
+          line = `${datasetLabel}: ${formattedValue}${unitLabel ? ` ${unitLabel}` : ''}`;
+        } else if (formattedValue) {
+          line = `${formattedValue}${unitLabel ? ` ${unitLabel}` : ''}`;
+        }
+
+        const accuracyValues = context.dataset?.accuracyValues;
+        const accuracy = Array.isArray(accuracyValues)
+          ? accuracyValues[context.dataIndex]
+          : null;
+
+        if (accuracy !== null && accuracy !== undefined) {
+          const formattedAccuracy = NUMBER_FORMATTER.format(accuracy);
+          const accuracyLabel = t.accuracy ?? 'Accuracy';
+          const separator = line ? ' • ' : '';
+          line = `${line}${separator}${accuracyLabel}: ${formattedAccuracy}%`;
+        }
+
+        return line;
+      },
+    };
 
     const baseOptions = {
       responsive: true,
@@ -584,6 +964,7 @@ export default function App() {
           borderWidth: 1,
           titleColor: '#f3f4ff',
           bodyColor: '#f3f4ff',
+          callbacks: tooltipCallbacks,
         },
       },
     };
@@ -668,7 +1049,7 @@ export default function App() {
         },
       },
     };
-  }, [hasIntervalSeries, intervalChartData, precipUnit, selectedIntervalSeries, tempUnit, windUnit]);
+  }, [NUMBER_FORMATTER, hasIntervalSeries, intervalChartData, precipUnit, selectedIntervalSeries, t, tempUnit, windUnit]);
 
   const selectedIntervalDateLabel = useMemo(() => {
     if (!selectedIntervalDate) {
@@ -693,7 +1074,8 @@ export default function App() {
       return null;
     }
 
-    const temperatureFlags = intervalChartData.datasets.temperatureFlags ?? [];
+  const temperatureFlags = intervalChartData.datasets.temperatureFlags ?? [];
+  const temperatureAccuracy = intervalChartData.datasets.temperatureAccuracy ?? [];
     const pointBackgroundColor = temperatureFlags.map((flag) =>
       flag ? '#ff6b6b' : '#050014'
     );
@@ -718,6 +1100,8 @@ export default function App() {
           pointBackgroundColor,
           pointBorderColor,
           pointBorderWidth: 2,
+          accuracyValues: temperatureAccuracy,
+          unitLabel: tempUnit,
         },
       ],
     };
@@ -733,7 +1117,8 @@ export default function App() {
       return null;
     }
 
-    const windFlags = intervalChartData.datasets.windFlags ?? [];
+  const windFlags = intervalChartData.datasets.windFlags ?? [];
+  const windAccuracy = intervalChartData.datasets.windAccuracy ?? [];
     const pointBackgroundColor = windFlags.map((flag) =>
       flag ? '#d7b4ff' : '#050014'
     );
@@ -759,6 +1144,8 @@ export default function App() {
           pointBackgroundColor,
           pointBorderColor,
           pointBorderWidth: 2,
+          accuracyValues: windAccuracy,
+          unitLabel: windUnit,
         },
       ],
     };
@@ -774,7 +1161,8 @@ export default function App() {
       return null;
     }
 
-    const precipitationFlags = intervalChartData.datasets.precipitationFlags ?? [];
+  const precipitationFlags = intervalChartData.datasets.precipitationFlags ?? [];
+  const precipitationAccuracy = intervalChartData.datasets.precipitationAccuracy ?? [];
     const backgroundColor = precipitationFlags.map((flag) =>
       flag ? 'rgba(64, 21, 136, 0.7)' : 'rgba(64, 21, 136, 0.45)'
     );
@@ -793,6 +1181,8 @@ export default function App() {
           hoverBackgroundColor,
           borderRadius: 10,
           maxBarThickness: 28,
+          accuracyValues: precipitationAccuracy,
+          unitLabel: precipUnit,
         },
       ],
     };
@@ -1096,8 +1486,8 @@ export default function App() {
     if (sourceRecords.length === 0) {
       return [];
     }
-
     const rainCount = sourceRecords.filter((entry) => entry.flags?.rain_risk).length;
+    const rainShare = sourceRecords.length > 0 ? rainCount / sourceRecords.length : 0;
     const windCount = sourceRecords.filter((entry) => entry.flags?.wind_caution).length;
     const heatCount = sourceRecords.filter((entry) => entry.flags?.heat_caution).length;
 
@@ -1106,37 +1496,67 @@ export default function App() {
     messages.push(
       heatCount > 0
         ? {
+            metric: 'temperature',
             tone: 'alert',
             icon: '🔥',
             text: t.intenseHeat
               .replace('{count}', heatCount)
               .replace('{unit}', heatCount === 1 ? t.slot : t.slots),
           }
-        : { tone: 'good', icon: '🌤️', text: t.comfortableRange }
+        : {
+            metric: 'temperature',
+            tone: 'good',
+            icon: '🌤️',
+            text: t.comfortableRange,
+          }
     );
 
-    messages.push(
-      rainCount > 0
-        ? {
-            tone: 'warning',
-            icon: '☔',
-            text: t.rainWarning
-              .replace('{count}', rainCount)
-              .replace('{unit}', rainCount === 1 ? t.entry : t.entries),
-          }
-        : { tone: 'good', icon: '☀️', text: t.noMeaningfulRain }
-    );
+    if (rainCount === 0) {
+      messages.push({
+        metric: 'precipitation',
+        tone: 'good',
+        icon: '☀️',
+        text: t.rainChanceNone,
+      });
+    } else if (rainShare >= 0.6) {
+      messages.push({
+        metric: 'precipitation',
+        tone: 'alert',
+        icon: '🌧️',
+        text: t.rainChanceHigh,
+      });
+    } else if (rainShare >= 0.3) {
+      messages.push({
+        metric: 'precipitation',
+        tone: 'warning',
+        icon: '🌦️',
+        text: t.rainChanceMedium,
+      });
+    } else {
+      messages.push({
+        metric: 'precipitation',
+        tone: 'info',
+        icon: '🌥️',
+        text: t.rainChanceLow,
+      });
+    }
 
     messages.push(
       windCount > 0
         ? {
+            metric: 'wind',
             tone: 'warning',
             icon: '💨',
             text: t.gustyConditions
               .replace('{count}', windCount)
               .replace('{unit}', windCount === 1 ? t.slot : t.slots),
           }
-        : { tone: 'info', icon: '🍃', text: t.calmWinds }
+        : {
+            metric: 'wind',
+            tone: 'info',
+            icon: '🍃',
+            text: t.calmWinds,
+          }
     );
 
     return messages;
@@ -1152,6 +1572,33 @@ export default function App() {
     [clone[secondLastIndex], clone[lastIndex]] = [clone[lastIndex], clone[secondLastIndex]];
     return clone;
   }, [overallInsights]);
+
+  const metricInsights = useMemo(() => {
+    if (!displayInsights || displayInsights.length === 0) {
+      return {};
+    }
+    return displayInsights.reduce((acc, insight) => {
+      if (insight.metric && !acc[insight.metric]) {
+        acc[insight.metric] = insight;
+      }
+      return acc;
+    }, {});
+  }, [displayInsights]);
+
+  const renderMetricInsight = (metricKey) => {
+    const insight = metricInsights[metricKey];
+    if (!insight || !insight.text) {
+      return null;
+    }
+    return (
+      <p className={`metric-insight metric-insight--${insight.tone}`}>
+        {insight.icon ? (
+          <span className="metric-insight__icon" aria-hidden="true">{insight.icon}</span>
+        ) : null}
+        <span>{insight.text}</span>
+      </p>
+    );
+  };
 
   const requestedRangeLabel = useMemo(() => {
     if (!weatherResult) {
@@ -1262,6 +1709,126 @@ export default function App() {
       precipitation: buildChartInsight(intervalChartData.datasets.precipitation, 'precipitation', NUMBER_FORMATTER, t),
     };
   }, [intervalChartData, NUMBER_FORMATTER, t]);
+
+  const intervalMetricSummaries = useMemo(() => {
+    if (!selectedIntervalSeries || selectedIntervalSeries.length === 0) {
+      return null;
+    }
+
+    const formatValue = (value, unit) =>
+      value === null || value === undefined || Number.isNaN(value)
+        ? null
+        : `${NUMBER_FORMATTER.format(value)} ${unit}`;
+
+    const numbersFrom = (values) =>
+      values
+        .filter((value) => value !== null && value !== undefined && !Number.isNaN(value));
+
+    const temperatureValues = numbersFrom(selectedIntervalSeries.map((entry) => entry.t2m ?? null));
+    const windValues = numbersFrom(selectedIntervalSeries.map((entry) => entry.ws10m ?? null));
+    const precipitationValues = numbersFrom(selectedIntervalSeries.map((entry) => entry.precip_mm ?? 0));
+
+    let temperatureSummary = null;
+    if (temperatureValues.length > 0) {
+      const tempMin = Math.min(...temperatureValues);
+      const tempMax = Math.max(...temperatureValues);
+      const tempAvg = temperatureValues.reduce((sum, value) => sum + value, 0) / temperatureValues.length;
+      const hasHeatFlag = selectedIntervalSeries.some((entry) => entry.flags?.heat_caution);
+      const descriptor = describeTemperatureLevel(tempAvg, hasHeatFlag, t) ?? {};
+
+      const metrics = [];
+      const avgLabel = formatValue(tempAvg, tempUnit);
+      if (avgLabel) {
+        metrics.push({ label: t.chartSummaryAverage, value: avgLabel });
+      }
+      if (!Number.isNaN(tempMin) && !Number.isNaN(tempMax)) {
+        metrics.push({
+          label: t.chartSummaryRange,
+          value: `${NUMBER_FORMATTER.format(tempMin)} → ${NUMBER_FORMATTER.format(tempMax)} ${tempUnit}`,
+        });
+      }
+
+      temperatureSummary = {
+        tone: descriptor.tone ?? 'info',
+        icon: descriptor.icon ?? '🌡️',
+        headline: descriptor.text ?? t.chartSummaryNoData,
+        detail: chartInsights?.temperature ?? null,
+        metrics,
+      };
+    }
+
+    let windSummary = null;
+    if (windValues.length > 0) {
+      const windMax = Math.max(...windValues);
+      const windAvg = windValues.reduce((sum, value) => sum + value, 0) / windValues.length;
+      const hasWindFlag = selectedIntervalSeries.some((entry) => entry.flags?.wind_caution);
+      const descriptor = describeWindLevel(windMax, hasWindFlag, t) ?? {};
+
+      const metrics = [];
+      const avgLabel = formatValue(windAvg, windUnit);
+      if (avgLabel) {
+        metrics.push({ label: t.chartSummaryAverage, value: avgLabel });
+      }
+      if (!Number.isNaN(windMax)) {
+        metrics.push({
+          label: t.chartSummaryPeak,
+          value: `${NUMBER_FORMATTER.format(windMax)} ${windUnit}`,
+        });
+      }
+
+      windSummary = {
+        tone: descriptor.tone ?? 'info',
+        icon: descriptor.icon ?? '🍃',
+        headline: descriptor.text ?? t.chartSummaryNoData,
+        detail: chartInsights?.wind ?? null,
+        metrics,
+      };
+    }
+
+    let precipitationSummary = null;
+    if (precipitationValues.length > 0) {
+      const precipTotal = precipitationValues.reduce((sum, value) => sum + value, 0);
+      const precipMax = Math.max(...precipitationValues);
+      const hasRainFlag = selectedIntervalSeries.some((entry) => entry.flags?.rain_risk);
+      const descriptor = describePrecipitationLevel(precipMax, hasRainFlag, t) ?? {};
+
+      const metrics = [];
+      const totalLabel = formatValue(precipTotal, precipUnit);
+      if (totalLabel) {
+        metrics.push({ label: t.chartSummaryTotal, value: totalLabel });
+      }
+      if (!Number.isNaN(precipMax)) {
+        metrics.push({
+          label: t.chartSummaryPeak,
+          value: `${NUMBER_FORMATTER.format(precipMax)} ${precipUnit}`,
+        });
+      }
+
+      precipitationSummary = {
+        tone: descriptor.tone ?? 'info',
+        icon: descriptor.icon ?? '☔',
+        headline: descriptor.text ?? t.chartSummaryNoData,
+        detail: chartInsights?.precipitation ?? null,
+        metrics,
+      };
+    }
+
+    if (!temperatureSummary && !windSummary && !precipitationSummary) {
+      return null;
+    }
+
+    return {
+      temperature: temperatureSummary,
+      wind: windSummary,
+      precipitation: precipitationSummary,
+    };
+  }, [NUMBER_FORMATTER, chartInsights, precipUnit, selectedIntervalSeries, t, tempUnit, windUnit]);
+
+  const {
+    temperature: temperatureSummary,
+    wind: windSummary,
+    precipitation: precipitationSummary,
+  } = intervalMetricSummaries ?? {};
 
   function handleSuggestionSelect(suggestion) {
     setQuery(suggestion.description);
@@ -1451,7 +2018,7 @@ export default function App() {
         );
 
         try {
-    const geocodeData = await geocodeLocation({ place_id: location.place_id });
+          const geocodeData = await geocodeLocation({ place_id: location.place_id });
 
           if (!geocodeData?.latitude || !geocodeData?.longitude) {
             setMultipleWeatherResults((prev) =>
@@ -1555,6 +2122,105 @@ export default function App() {
       setWeatherLoading(false);
     }
   }
+
+  const handlePdfDownload = useCallback(() => {
+    if (!weatherResult) {
+      return;
+    }
+
+    const filterItems = [];
+    const locationLabel = weatherPanelLocationLabel;
+
+    if (locationLabel) {
+      filterItems.push({ label: t.pdfFilterLocation, value: locationLabel });
+    }
+
+    filterItems.push({
+      label: t.pdfFilterMode,
+      value: weatherMode === 'interval' ? t.continuousRange : t.singleMoment,
+    });
+
+    const rangeLabel = requestedRangeLabel ?? weatherTitle ?? null;
+    if (rangeLabel) {
+      filterItems.push({ label: t.pdfFilterPeriod, value: rangeLabel });
+    }
+
+    const selectedDates = Array.isArray(weatherResult.selectedDates) ? weatherResult.selectedDates : null;
+    if (selectedDates && selectedDates.length > 0) {
+      const formattedDates = selectedDates
+        .map((date) => {
+          const parsed = toUTCDate(date);
+          return parsed ? DATE_FORMATTER.format(parsed) : date;
+        })
+        .filter(Boolean)
+        .join(', ');
+      if (formattedDates) {
+        filterItems.push({ label: t.pdfFilterSelectedDates, value: formattedDates });
+      }
+    }
+
+    const hourLabel = (() => {
+      if (weatherMode === 'interval') {
+        const start = weatherHourStart?.trim();
+        const end = weatherHourEnd?.trim();
+        if (start && end) {
+          return `${String(start).padStart(2, '0')}h → ${String(end).padStart(2, '0')}h`;
+        }
+      } else {
+        const single = weatherHourStart?.trim();
+        if (single) {
+          return `${String(single).padStart(2, '0')}h`;
+        }
+      }
+      return null;
+    })();
+
+    if (hourLabel) {
+      filterItems.push({ label: t.pdfFilterHours, value: hourLabel });
+    }
+
+    if (weatherResult.granularity) {
+      const granularityLabel = weatherResult.granularity === 'hourly' ? t.hourlyData : t.dailyData;
+      filterItems.push({ label: t.pdfFilterGranularity, value: granularityLabel });
+    }
+
+    if (hasIntervalSeries && selectedIntervalDateLabel) {
+      filterItems.push({ label: t.pdfFilterChartDay, value: selectedIntervalDateLabel });
+    }
+
+    const units = weatherResult?.meta?.units ?? {};
+
+    generatePDF({
+      weatherResult,
+      geocodeResult,
+      t,
+      locale,
+      filters: {
+        items: filterItems,
+        locationName: locationLabel,
+      },
+      insights: displayInsights,
+      selectedIntervalSeries: hasIntervalSeries ? selectedIntervalSeries : null,
+      selectedIntervalDateLabel: hasIntervalSeries ? selectedIntervalDateLabel : null,
+      units,
+    });
+  }, [
+    DATE_FORMATTER,
+    displayInsights,
+    geocodeResult,
+    hasIntervalSeries,
+    locale,
+    requestedRangeLabel,
+    selectedIntervalDateLabel,
+    selectedIntervalSeries,
+    t,
+    weatherHourEnd,
+    weatherHourStart,
+    weatherMode,
+    weatherPanelLocationLabel,
+    weatherResult,
+    weatherTitle,
+  ]);
 
   function openCalendar(mode = 'single') {
     setCalendarMode(mode);
@@ -1662,7 +2328,7 @@ export default function App() {
           >
             <header className="repeat-dialog__header">
               <h3 id="repeat-dialog-title">
-                {calendarMode === 'single' ? 'Select date' : 'Select days'}
+                {calendarMode === 'single' ? t.selectDatePlaceholder : t.selectDaysLabel}
               </h3>
               <button
                 type="button"
@@ -2017,8 +2683,8 @@ export default function App() {
                   <span className="date-picker-trigger__value" style={!weatherStartDate ? {opacity: 0.5} : {}}>
                     {weatherStartDate ? (() => {
                       const date = toUTCDate(weatherStartDate);
-                      return date ? DATE_FORMATTER.format(date) : 'Select date';
-                    })() : 'Select date'}
+                      return date ? DATE_FORMATTER.format(date) : t.selectDatePlaceholder;
+                    })() : t.selectDatePlaceholder}
                   </span>
                 </div>
                 <div className="hour-input-container">
@@ -2057,7 +2723,7 @@ export default function App() {
                           const utcDate = toUTCDate(d);
                           return utcDate ? SHORT_DATE_FORMATTER.format(utcDate) : null;
                         }).filter(Boolean).join(', ')
-                      : 'Select dates'}
+                      : t.selectDates}
                   </span>
                   <span className="date-picker-trigger__hint">
                     {weatherStartDate || repeatDates.length > 0 ? `${[weatherStartDate, ...repeatDates].filter(Boolean).length} selected` : ''}
@@ -2331,17 +2997,6 @@ export default function App() {
                 )}
               </header>
 
-              {displayInsights.length > 0 && (
-                <ul className="feedback-grid compact" role="status" aria-live="polite">
-                  {displayInsights.map((insight, index) => (
-                    <li key={`overview-${index}`} className={`feedback-bubble ${insight.tone}`}>
-                      <span aria-hidden="true">{insight.icon}</span>
-                      {insight.text}
-                    </li>
-                  ))}
-                </ul>
-              )}
-
               {hasIntervalSeries && intervalDates.length > 0 && (
                 <div className="interval-day-selector" role="group" aria-label="Select day within range">
                   <span className="interval-day-selector__label">Available days</span>
@@ -2373,7 +3028,7 @@ export default function App() {
 
               {!hasIntervalSeries && weatherResult.data && weatherResult.data.length > 0 && (
                 <div className="weather-grid">
-                  {weatherResult.data.map((entry) => {
+                  {weatherResult.data.map((entry, index) => {
                     const hasHourlyData = weatherResult.granularity === 'hourly';
                     const startHour = entry.hour;
                     const endHour = entry.hour_end ?? null;
@@ -2398,6 +3053,7 @@ export default function App() {
                     const metaLabel = weatherResult.granularity === 'daily'
                       ? t.dailyData
                       : hourLabel ?? t.hourlyData;
+                    const showMetricInsights = index === 0;
 
                     return (
                       <article
@@ -2420,6 +3076,7 @@ export default function App() {
                                 <span className="accuracy-badge">{entry.accuracy.T2M.toFixed(1)}% {t.accuracy}</span>
                               )}
                             </dd>
+                            {showMetricInsights && renderMetricInsight('temperature')}
                           </div>
                           {weatherResult.granularity === 'daily' && (
                             <>
@@ -2451,6 +3108,7 @@ export default function App() {
                                 <span className="accuracy-badge">{entry.accuracy.WS10M.toFixed(1)}% {t.accuracy}</span>
                               )}
                             </dd>
+                            {showMetricInsights && renderMetricInsight('wind')}
                           </div>
                           <div className="weather-day__metric">
                             <dt>{t.precipitation}</dt>
@@ -2460,6 +3118,7 @@ export default function App() {
                                 <span className="accuracy-badge">{entry.accuracy.PRECTOTCORR.toFixed(1)}% {t.accuracy}</span>
                               )}
                             </dd>
+                            {showMetricInsights && renderMetricInsight('precipitation')}
                           </div>
                         </dl>
                       </article>
@@ -2485,29 +3144,104 @@ export default function App() {
                   <div className="chart-grid">
                     {temperatureChartData && temperatureChartOptions && (
                       <article className="chart-panel" aria-label="Hourly temperature chart">
-                        <h5>{t.temperature}</h5>
-                        <p className="chart-insight">{chartInsights?.temperature}</p>
+                        <header className="chart-panel__header">
+                          <div>
+                            <h5>{t.temperature}</h5>
+                            <p className="chart-insight">{chartInsights?.temperature}</p>
+                          </div>
+                          {temperatureSummary?.metrics?.length > 0 && (
+                            <div className="chart-panel__metrics">
+                              {temperatureSummary.metrics.map((metric, index) => (
+                                <span key={`temp-metric-${index}`}>
+                                  <strong>{metric.label}</strong>
+                                  <em>{metric.value}</em>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </header>
                         <div className="chart-canvas">
                           <Line key={`temperature-${selectedIntervalDate ?? 'none'}`} options={temperatureChartOptions} data={temperatureChartData} />
                         </div>
+                        {temperatureSummary && (
+                          <div className={`chart-summary card-${temperatureSummary.tone}`}>
+                            <div className="chart-summary__icon" aria-hidden="true">{temperatureSummary.icon}</div>
+                            <div className="chart-summary__content">
+                              <p className="chart-summary__headline">{temperatureSummary.headline}</p>
+                              {temperatureSummary.detail && (
+                                <p className="chart-summary__detail">{temperatureSummary.detail}</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </article>
                     )}
                     {windChartData && windChartOptions && (
                       <article className="chart-panel" aria-label="Hourly wind chart">
-                        <h5>{t.wind}</h5>
-                        <p className="chart-insight">{chartInsights?.wind}</p>
+                        <header className="chart-panel__header">
+                          <div>
+                            <h5>{t.wind}</h5>
+                            <p className="chart-insight">{chartInsights?.wind}</p>
+                          </div>
+                          {windSummary?.metrics?.length > 0 && (
+                            <div className="chart-panel__metrics">
+                              {windSummary.metrics.map((metric, index) => (
+                                <span key={`wind-metric-${index}`}>
+                                  <strong>{metric.label}</strong>
+                                  <em>{metric.value}</em>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </header>
                         <div className="chart-canvas">
                           <Line key={`wind-${selectedIntervalDate ?? 'none'}`} options={windChartOptions} data={windChartData} />
                         </div>
+                        {windSummary && (
+                          <div className={`chart-summary card-${windSummary.tone}`}>
+                            <div className="chart-summary__icon" aria-hidden="true">{windSummary.icon}</div>
+                            <div className="chart-summary__content">
+                              <p className="chart-summary__headline">{windSummary.headline}</p>
+                              {windSummary.detail && (
+                                <p className="chart-summary__detail">{windSummary.detail}</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </article>
                     )}
                     {precipitationChartData && precipitationChartOptions && (
                       <article className="chart-panel" aria-label="Hourly precipitation chart">
-                        <h5>{t.precipitation}</h5>
-                        <p className="chart-insight">{chartInsights?.precipitation}</p>
+                        <header className="chart-panel__header">
+                          <div>
+                            <h5>{t.precipitation}</h5>
+                            <p className="chart-insight">{chartInsights?.precipitation}</p>
+                          </div>
+                          {precipitationSummary?.metrics?.length > 0 && (
+                            <div className="chart-panel__metrics">
+                              {precipitationSummary.metrics.map((metric, index) => (
+                                <span key={`precip-metric-${index}`}>
+                                  <strong>{metric.label}</strong>
+                                  <em>{metric.value}</em>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </header>
                         <div className="chart-canvas">
                           <Bar key={`precipitation-${selectedIntervalDate ?? 'none'}`} options={precipitationChartOptions} data={precipitationChartData} />
                         </div>
+                        {precipitationSummary && (
+                          <div className={`chart-summary card-${precipitationSummary.tone}`}>
+                            <div className="chart-summary__icon" aria-hidden="true">{precipitationSummary.icon}</div>
+                            <div className="chart-summary__content">
+                              <p className="chart-summary__headline">{precipitationSummary.headline}</p>
+                              {precipitationSummary.detail && (
+                                <p className="chart-summary__detail">{precipitationSummary.detail}</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </article>
                     )}
                   </div>
@@ -2519,7 +3253,7 @@ export default function App() {
                 <button 
                   type="button"
                   className="download-pdf-btn"
-                  onClick={() => generatePDF(weatherResult, geocodeResult, t)}
+                  onClick={handlePdfDownload}
                   title={t.downloadPdfReport}
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
