@@ -14,24 +14,26 @@ import {
 import { Line, Bar } from 'react-chartjs-2';
 
 import { fetchPlaceSuggestions, fetchWeatherSummary, geocodeLocation } from './api.js';
+import { useTranslation } from './i18n.js';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
 
 const GOOGLE_MAPS_EMBED_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-const DATE_FORMATTER = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'long', timeZone: 'UTC' });
-const SHORT_DATE_FORMATTER = new Intl.DateTimeFormat('pt-BR', {
-  day: '2-digit',
-  month: '2-digit',
-  timeZone: 'UTC',
-});
-const NUMBER_FORMATTER = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 });
 
 function toUTCDate(dateString) {
-  if (!dateString) {
+  if (!dateString || typeof dateString !== 'string') {
     return null;
   }
-  const [year, month, day] = dateString.split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
+  try {
+    const [year, month, day] = dateString.split('-').map(Number);
+    if (isNaN(year) || isNaN(month) || isNaN(day)) {
+      return null;
+    }
+    return new Date(Date.UTC(year, month - 1, day));
+  } catch (error) {
+    console.error('Invalid date string:', dateString, error);
+    return null;
+  }
 }
 
 function buildMapSrc(result) {
@@ -47,7 +49,7 @@ function buildMapSrc(result) {
   return `https://www.google.com/maps?q=${encodeURIComponent(`${result.latitude},${result.longitude}`)}&output=embed`;
 }
 
-function formatWeatherTitle(summary) {
+function formatWeatherTitle(summary, dateFormatter) {
   if (!summary) {
     return '';
   }
@@ -59,8 +61,8 @@ function formatWeatherTitle(summary) {
 
   const startRecord = source[0];
   const endRecord = source[source.length - 1];
-  const startDate = startRecord?.date ? DATE_FORMATTER.format(toUTCDate(startRecord.date)) : '';
-  const endDate = endRecord?.date ? DATE_FORMATTER.format(toUTCDate(endRecord.date)) : '';
+  const startDate = startRecord?.date ? dateFormatter.format(toUTCDate(startRecord.date)) : '';
+  const endDate = endRecord?.date ? dateFormatter.format(toUTCDate(endRecord.date)) : '';
 
   if (summary.granularity === 'hourly') {
     const startHour = startRecord?.hour !== null && startRecord?.hour !== undefined
@@ -100,15 +102,15 @@ function describeTemperatureLevel(value, heatFlag = false) {
     return null;
   }
   if (heatFlag || value >= 34) {
-    return { tone: 'alert', icon: '🔥', text: 'Calor intenso previsto — priorize sombra e hidratação.' };
+    return { tone: 'alert', icon: '🔥', text: 'Extreme heat ahead—prioritize shade and hydration.' };
   }
   if (value >= 28) {
-    return { tone: 'warning', icon: '🌡️', text: 'Temperatura elevada, planeje pausas para refrescar.' };
+    return { tone: 'warning', icon: '🌡️', text: 'High temperatures expected—schedule cooling breaks.' };
   }
   if (value <= 15) {
-    return { tone: 'info', icon: '🧥', text: 'Clima fresco, considere uma camada extra de roupa.' };
+    return { tone: 'info', icon: '🧥', text: 'Cool conditions—consider an extra layer.' };
   }
-  return { tone: 'good', icon: '🌤️', text: 'Temperatura confortável para atividades externas.' };
+  return { tone: 'good', icon: '🌤️', text: 'Comfortable temperatures for outdoor plans.' };
 }
 
 function describeWindLevel(value, windFlag = false) {
@@ -116,15 +118,15 @@ function describeWindLevel(value, windFlag = false) {
     return null;
   }
   if (windFlag || value >= 9) {
-    return { tone: 'alert', icon: '💨', text: 'Rajadas fortes — prenda objetos soltos e redobre a atenção.' };
+    return { tone: 'alert', icon: '💨', text: 'Strong gusts—secure loose items and stay alert.' };
   }
   if (value >= 6) {
-    return { tone: 'warning', icon: '🍃', text: 'Vento moderado constante, pode incomodar atividades externas.' };
+    return { tone: 'warning', icon: '🍃', text: 'Steady moderate wind may disrupt outdoor plans.' };
   }
   if (value <= 1.5) {
-    return { tone: 'good', icon: '🍃', text: 'Ar quase parado, sensação térmica estável.' };
+    return { tone: 'good', icon: '🍃', text: 'Barely any wind, stable feels-like conditions.' };
   }
-  return { tone: 'info', icon: '🍃', text: 'Brisa leve contribuindo para o conforto térmico.' };
+  return { tone: 'info', icon: '🍃', text: 'Light breeze adding to thermal comfort.' };
 }
 
 function describePrecipitationLevel(value, rainFlag = false) {
@@ -132,21 +134,21 @@ function describePrecipitationLevel(value, rainFlag = false) {
     return null;
   }
   if (rainFlag || value >= 5) {
-    return { tone: 'alert', icon: '🌧️', text: 'Chuva significativa prevista — garanta abrigo ou capa de chuva.' };
+    return { tone: 'alert', icon: '🌧️', text: 'Significant rain likely—plan shelter or rain gear.' };
   }
   if (value >= 2) {
-    return { tone: 'warning', icon: '☔', text: 'Chance de chuva leve ou garoa prolongada, leve guarda-chuva.' };
+    return { tone: 'warning', icon: '☔', text: 'Light rain or drizzle possible—carry an umbrella.' };
   }
   if (value > 0) {
-    return { tone: 'info', icon: '☂️', text: 'Possibilidade pequena de garoa rápida, acompanhe o céu.' };
+    return { tone: 'info', icon: '☂️', text: 'Small chance of brief drizzle—keep an eye on the sky.' };
   }
-  return { tone: 'good', icon: '☀️', text: 'Sem indicativos de chuva para este período.' };
+  return { tone: 'good', icon: '☀️', text: 'No rain expected for this period.' };
 }
 
-function buildChartInsight(values, type) {
+function buildChartInsight(values, type, formatter) {
   const numeric = (values ?? []).filter((value) => value !== null && value !== undefined);
   if (numeric.length === 0) {
-    return 'Sem dados suficientes para o intervalo selecionado.';
+    return 'Not enough data for the selected window.';
   }
 
   const min = Math.min(...numeric);
@@ -155,38 +157,52 @@ function buildChartInsight(values, type) {
 
   if (type === 'temperature') {
     if (max >= 34) {
-      return `Picos fortes de calor (${NUMBER_FORMATTER.format(max)}°C) — evite horários de maior exposição.`;
+      return `Sharp heat spikes (${formatter.format(max)}°C)—avoid peak exposure hours.`;
     }
     if (max >= 28) {
-      return `Temperaturas altas, média de ${NUMBER_FORMATTER.format(avg)}°C no período.`;
+      return `High temperatures, averaging ${formatter.format(avg)}°C across the period.`;
     }
-    return `Temperaturas estáveis entre ${NUMBER_FORMATTER.format(min)}°C e ${NUMBER_FORMATTER.format(max)}°C.`;
+    return `Temperatures stay between ${formatter.format(min)}°C and ${formatter.format(max)}°C.`;
   }
 
   if (type === 'wind') {
     if (max >= 9) {
-      return `Vento forte atingindo ${NUMBER_FORMATTER.format(max)} m/s — atenção a rajadas.`;
+      return `Wind peaks at ${formatter.format(max)} m/s—watch for gusts.`;
     }
     if (max >= 6) {
-      return `Vento moderado predominando (média ${NUMBER_FORMATTER.format(avg)} m/s).`;
+      return `Moderate wind dominates (average ${formatter.format(avg)} m/s).`;
     }
-    return `Vento leve, mantendo-se abaixo de ${NUMBER_FORMATTER.format(max)} m/s.`;
+    return `Gentle wind stays below ${formatter.format(max)} m/s.`;
   }
 
   const total = numeric.reduce((sum, value) => sum + value, 0);
   if (max >= 5) {
-    return `Chuva volumosa com picos de ${NUMBER_FORMATTER.format(max)} mm/h — programe abrigo.`;
+    return `Heavy rain with peaks of ${formatter.format(max)} mm/h—plan for cover.`;
   }
   if (max >= 2) {
-    return `Oscilações de chuva leve (média ${NUMBER_FORMATTER.format(avg)} mm/h).`;
+    return `Light rain fluctuations (average ${formatter.format(avg)} mm/h).`;
   }
   if (total === 0) {
-    return 'Intervalo seco, sem precipitação registrada.';
+    return 'Dry window with no recorded precipitation.';
   }
-  return `Garoa eventual acumulando ${NUMBER_FORMATTER.format(total)} mm no intervalo.`;
+  return `Occasional drizzle adds up to ${formatter.format(total)} mm across the window.`;
 }
 
 export default function App() {
+  const [locale, setLocale] = useState(() => {
+    const saved = localStorage.getItem('rain-locale');
+    return saved === 'pt' || saved === 'en' ? saved : 'en';
+  });
+  const t = useTranslation(locale);
+  
+  const DATE_FORMATTER = useMemo(() => new Intl.DateTimeFormat(locale === 'pt' ? 'pt-BR' : 'en-US', { dateStyle: 'long', timeZone: 'UTC' }), [locale]);
+  const SHORT_DATE_FORMATTER = useMemo(() => new Intl.DateTimeFormat(locale === 'pt' ? 'pt-BR' : 'en-US', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'UTC',
+  }), [locale]);
+  const NUMBER_FORMATTER = useMemo(() => new Intl.NumberFormat(locale === 'pt' ? 'pt-BR' : 'en-US', { maximumFractionDigits: 1 }), [locale]);
+  
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsVisible, setSuggestionsVisible] = useState(false);
@@ -198,7 +214,7 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [weatherStartDate, setWeatherStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [weatherStartDate, setWeatherStartDate] = useState(null);
   const [weatherEndDate, setWeatherEndDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [weatherMode, setWeatherMode] = useState('single');
   const [weatherHourStart, setWeatherHourStart] = useState('');
@@ -216,6 +232,35 @@ export default function App() {
     base.setUTCDate(1);
     return base.toISOString().slice(0, 10);
   });
+  
+  function handleLocaleChange(newLocale) {
+    setLocale(newLocale);
+    localStorage.setItem('rain-locale', newLocale);
+  }
+
+  // Animate logo on button click
+  useEffect(() => {
+    const animateLogo = () => {
+      const brand = document.querySelector('.brand');
+      if (brand) {
+        brand.classList.add('brand--active');
+        setTimeout(() => {
+          brand.classList.remove('brand--active');
+        }, 1500);
+      }
+    };
+
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(button => {
+      button.addEventListener('click', animateLogo);
+    });
+
+    return () => {
+      buttons.forEach(button => {
+        button.removeEventListener('click', animateLogo);
+      });
+    };
+  }, [weatherMode, result, weatherResult]);
 
   const mapSrc = useMemo(() => buildMapSrc(result), [result]);
   const weatherUnits = weatherResult?.meta?.units ?? {};
@@ -306,7 +351,10 @@ export default function App() {
       return null;
     }
 
-    const labels = selectedIntervalSeries.map((entry) => `${String(entry.hour).padStart(2, '0')}h`);
+    const labels = selectedIntervalSeries.map((entry) => {
+      const hour = entry.hour !== null && entry.hour !== undefined ? entry.hour : 0;
+      return `${String(hour).padStart(2, '0')}h`;
+    });
 
     return {
       labels,
@@ -370,7 +418,7 @@ export default function App() {
             },
             title: {
               display: true,
-              text: `Temperatura (${tempUnit})`,
+              text: `Temperature (${tempUnit})`,
               color: 'rgba(224, 226, 255, 0.8)',
             },
           },
@@ -396,7 +444,7 @@ export default function App() {
             },
             title: {
               display: true,
-              text: `Vento (${windUnit})`,
+              text: `Wind (${windUnit})`,
               color: 'rgba(224, 226, 255, 0.8)',
             },
           },
@@ -422,7 +470,7 @@ export default function App() {
             },
             title: {
               display: true,
-              text: `Precipitação (${precipUnit})`,
+              text: `Precipitation (${precipUnit})`,
               color: 'rgba(184, 191, 255, 0.85)',
             },
           },
@@ -442,13 +490,17 @@ export default function App() {
     if (!selectedIntervalDate) {
       return null;
     }
-    return DATE_FORMATTER.format(toUTCDate(selectedIntervalDate));
-  }, [selectedIntervalDate]);
+    const date = toUTCDate(selectedIntervalDate);
+    if (!date) {
+      return null;
+    }
+    return DATE_FORMATTER.format(date);
+  }, [selectedIntervalDate, DATE_FORMATTER]);
 
-  const weatherTitle = useMemo(() => formatWeatherTitle(weatherResult), [weatherResult]);
+  const weatherTitle = useMemo(() => formatWeatherTitle(weatherResult, DATE_FORMATTER), [weatherResult, DATE_FORMATTER]);
 
   const temperatureChartData = useMemo(() => {
-    if (!intervalChartData) {
+    if (!intervalChartData || !intervalChartData.datasets) {
       return null;
     }
     const data = intervalChartData.datasets.temperature ?? [];
@@ -457,19 +509,20 @@ export default function App() {
       return null;
     }
 
-    const pointBackgroundColor = intervalChartData.datasets.temperatureFlags.map((flag) =>
+    const temperatureFlags = intervalChartData.datasets.temperatureFlags ?? [];
+    const pointBackgroundColor = temperatureFlags.map((flag) =>
       flag ? '#ff6b6b' : '#050014'
     );
-    const pointBorderColor = intervalChartData.datasets.temperatureFlags.map((flag) =>
+    const pointBorderColor = temperatureFlags.map((flag) =>
       flag ? '#ff6b6b' : '#7cf1ff'
     );
 
     return {
-      labels: intervalChartData.labels,
+      labels: intervalChartData.labels ?? [],
       datasets: [
         {
           type: 'line',
-          label: `Temperatura (${tempUnit})`,
+          label: `Temperature (${tempUnit})`,
           data,
           borderColor: '#7cf1ff',
           backgroundColor: 'rgba(124, 241, 255, 0.2)',
@@ -487,7 +540,7 @@ export default function App() {
   }, [intervalChartData, tempUnit]);
 
   const windChartData = useMemo(() => {
-    if (!intervalChartData) {
+    if (!intervalChartData || !intervalChartData.datasets) {
       return null;
     }
     const data = intervalChartData.datasets.wind ?? [];
@@ -496,19 +549,20 @@ export default function App() {
       return null;
     }
 
-    const pointBackgroundColor = intervalChartData.datasets.windFlags.map((flag) =>
+    const windFlags = intervalChartData.datasets.windFlags ?? [];
+    const pointBackgroundColor = windFlags.map((flag) =>
       flag ? '#d7b4ff' : '#050014'
     );
-    const pointBorderColor = intervalChartData.datasets.windFlags.map((flag) =>
+    const pointBorderColor = windFlags.map((flag) =>
       flag ? '#d7b4ff' : '#a96bff'
     );
 
     return {
-      labels: intervalChartData.labels,
+      labels: intervalChartData.labels ?? [],
       datasets: [
         {
           type: 'line',
-          label: `Vento (${windUnit})`,
+          label: `Wind (${windUnit})`,
           data,
           borderColor: '#a96bff',
           backgroundColor: 'rgba(169, 107, 255, 0.2)',
@@ -527,7 +581,7 @@ export default function App() {
   }, [intervalChartData, windUnit]);
 
   const precipitationChartData = useMemo(() => {
-    if (!intervalChartData) {
+    if (!intervalChartData || !intervalChartData.datasets) {
       return null;
     }
     const data = intervalChartData.datasets.precipitation ?? [];
@@ -536,19 +590,20 @@ export default function App() {
       return null;
     }
 
-    const backgroundColor = intervalChartData.datasets.precipitationFlags.map((flag) =>
+    const precipitationFlags = intervalChartData.datasets.precipitationFlags ?? [];
+    const backgroundColor = precipitationFlags.map((flag) =>
       flag ? 'rgba(64, 21, 136, 0.7)' : 'rgba(64, 21, 136, 0.45)'
     );
-    const hoverBackgroundColor = intervalChartData.datasets.precipitationFlags.map((flag) =>
+    const hoverBackgroundColor = precipitationFlags.map((flag) =>
       flag ? 'rgba(124, 241, 255, 0.65)' : 'rgba(124, 241, 255, 0.35)'
     );
 
     return {
-      labels: intervalChartData.labels,
+      labels: intervalChartData.labels ?? [],
       datasets: [
         {
           type: 'bar',
-          label: `Precipitação (${precipUnit})`,
+          label: `Precipitation (${precipUnit})`,
           data,
           backgroundColor,
           hoverBackgroundColor,
@@ -602,7 +657,7 @@ export default function App() {
         if (!isActive) {
           return;
         }
-        console.error('Falha ao carregar sugestões', err);
+        console.error('Failed to load suggestions', err);
         setSuggestions([]);
       } finally {
         if (isActive) {
@@ -648,7 +703,7 @@ export default function App() {
       setSuggestions([]);
     } catch (err) {
       setResult(null);
-      setError(err.message ?? 'Não foi possível geocodificar a localização informada.');
+  setError(err.message ?? 'We couldn’t geocode the selected location.');
     } finally {
       setLoading(false);
     }
@@ -670,12 +725,12 @@ export default function App() {
       }
       const trimmed = String(value).trim();
       if (trimmed === '') {
-        setWeatherError(`${label} deve ser informada.`);
+        setWeatherError(`${label} ${t.hourMustBeProvided}`);
         return null;
       }
       const numeric = Number(trimmed);
       if (!Number.isInteger(numeric) || numeric < 0 || numeric > 23) {
-        setWeatherError(`${label} deve ser um número inteiro entre 0 e 23.`);
+        setWeatherError(`${label} ${t.hourMustBeInteger}`);
         return null;
       }
       return numeric;
@@ -685,14 +740,14 @@ export default function App() {
     let hourEndParam = null;
 
     if (isIntervalMode) {
-      const startHourValue = parseHour(weatherHourStart, 'Hora inicial');
-      const endHourValue = parseHour(weatherHourEnd, 'Hora final');
+      const startHourValue = parseHour(weatherHourStart, t.startHour);
+      const endHourValue = parseHour(weatherHourEnd, t.endHour);
       if (startHourValue === null || endHourValue === null) {
         return;
       }
 
       if (endHourValue < startHourValue) {
-        setWeatherError('A hora final deve ser maior ou igual à hora inicial.');
+        setWeatherError(t.invalidHourRange);
         return;
       }
 
@@ -701,7 +756,7 @@ export default function App() {
     } else {
       const trimmedStart = weatherHourStart.trim();
       if (trimmedStart !== '') {
-        const startHourValue = parseHour(trimmedStart, 'Hora selecionada');
+        const startHourValue = parseHour(trimmedStart, t.selectedHour);
         if (startHourValue === null) {
           return;
         }
@@ -712,10 +767,10 @@ export default function App() {
 
     const selection = isIntervalMode
       ? Array.from(new Set([weatherStartDate, ...repeatDates])).filter(Boolean).sort()
-      : [weatherStartDate];
+      : [weatherStartDate].filter(Boolean);
 
     if (selection.length === 0) {
-      setWeatherError('Selecione ao menos uma data válida.');
+      setWeatherError(t.selectAtLeastOneDate);
       return;
     }
 
@@ -734,10 +789,26 @@ export default function App() {
         hourEnd: hourEndParam,
       });
 
+      if (!summary) {
+        throw new Error('No data returned from API');
+      }
+
       if (isIntervalMode) {
         const selectedSet = new Set(selection);
-        const filteredData = (summary.data ?? []).filter((record) => selectedSet.has(record.date));
-        const filteredSeries = summary.series ? summary.series.filter((record) => selectedSet.has(record.date)) : null;
+        const filteredData = (summary.data ?? []).filter((record) => {
+          if (!record || !record.date) {
+            return false;
+          }
+          return selectedSet.has(record.date);
+        });
+        const filteredSeries = summary.series 
+          ? summary.series.filter((record) => {
+              if (!record || !record.date) {
+                return false;
+              }
+              return selectedSet.has(record.date);
+            })
+          : null;
 
         setWeatherResult({
           ...summary,
@@ -751,8 +822,8 @@ export default function App() {
         setWeatherEndDate(rangeEnd);
       }
     } catch (err) {
-      setWeatherResult(null);
-      setWeatherError(err.message ?? 'Não foi possível recuperar os dados climáticos.');
+  setWeatherResult(null);
+  setWeatherError(err.message ?? 'We couldn’t retrieve the weather data.');
     } finally {
       setWeatherLoading(false);
     }
@@ -786,9 +857,9 @@ export default function App() {
         ? {
             tone: 'alert',
             icon: '🔥',
-            text: `${heatCount} ${heatCount === 1 ? 'momento' : 'momentos'} com calor intenso — planeje pausas à sombra.`,
+            text: `${heatCount} ${heatCount === 1 ? 'slot' : 'slots'} of intense heat—plan shaded breaks.`,
           }
-        : { tone: 'good', icon: '🌤️', text: 'Temperaturas dentro de um intervalo confortável na maior parte do período.' }
+        : { tone: 'good', icon: '🌤️', text: 'Temperatures stay within a comfortable range most of the time.' }
     );
 
     messages.push(
@@ -796,9 +867,9 @@ export default function App() {
         ? {
             tone: 'warning',
             icon: '☔',
-            text: `Chuva presente em ${rainCount} ${rainCount === 1 ? 'registro' : 'registros'} — leve capa ou guarda-chuva.`,
+            text: `Rain appears in ${rainCount} ${rainCount === 1 ? 'entry' : 'entries'}—pack a raincoat or umbrella.`,
           }
-        : { tone: 'good', icon: '☀️', text: 'Nenhum indicativo relevante de chuva no período analisado.' }
+        : { tone: 'good', icon: '☀️', text: 'No meaningful rain signals throughout the analyzed period.' }
     );
 
     messages.push(
@@ -806,9 +877,9 @@ export default function App() {
         ? {
             tone: 'warning',
             icon: '💨',
-            text: `Rajadas percebidas em ${windCount} ${windCount === 1 ? 'momento' : 'momentos'} — atenção extra ao ar livre.`,
+            text: `Gusty conditions in ${windCount} ${windCount === 1 ? 'slot' : 'slots'}—exercise extra caution outdoors.`,
           }
-        : { tone: 'info', icon: '🍃', text: 'Ventos calmos predominam, sensação térmica mais estável.' }
+        : { tone: 'info', icon: '🍃', text: 'Calm winds dominate, keeping the feels-like temperature steady.' }
     );
 
     return messages;
@@ -824,18 +895,28 @@ export default function App() {
       : null;
     if (manualSelection && manualSelection.length > 0) {
       if (manualSelection.length === 1) {
-        return DATE_FORMATTER.format(toUTCDate(manualSelection[0]));
+        const date = toUTCDate(manualSelection[0]);
+        return date ? DATE_FORMATTER.format(date) : null;
       }
 
       if (manualSelection.length <= 4) {
         const joined = manualSelection
-          .map((date) => SHORT_DATE_FORMATTER.format(toUTCDate(date)))
+          .map((date) => {
+            const utcDate = toUTCDate(date);
+            return utcDate ? SHORT_DATE_FORMATTER.format(utcDate) : null;
+          })
+          .filter(Boolean)
           .join(', ');
-        return `Datas selecionadas: ${joined}`;
+        return joined ? `Datas selecionadas: ${joined}` : null;
       }
 
-      const firstLabel = SHORT_DATE_FORMATTER.format(toUTCDate(manualSelection[0]));
-      const lastLabel = SHORT_DATE_FORMATTER.format(toUTCDate(manualSelection[manualSelection.length - 1]));
+      const firstDate = toUTCDate(manualSelection[0]);
+      const lastDate = toUTCDate(manualSelection[manualSelection.length - 1]);
+      if (!firstDate || !lastDate) {
+        return null;
+      }
+      const firstLabel = SHORT_DATE_FORMATTER.format(firstDate);
+      const lastLabel = SHORT_DATE_FORMATTER.format(lastDate);
       return `Datas selecionadas (${manualSelection.length}): ${firstLabel} → ${lastLabel}`;
     }
 
@@ -857,8 +938,13 @@ export default function App() {
     let label = null;
 
     if (weatherResult.granularity === 'hourly' && sourceRecords.length > 1) {
-      const startDay = SHORT_DATE_FORMATTER.format(toUTCDate(startRecord.date));
-      const endDay = SHORT_DATE_FORMATTER.format(toUTCDate(endRecord.date));
+      const startDate = toUTCDate(startRecord.date);
+      const endDate = toUTCDate(endRecord.date);
+      if (!startDate || !endDate) {
+        return null;
+      }
+      const startDay = SHORT_DATE_FORMATTER.format(startDate);
+      const endDay = SHORT_DATE_FORMATTER.format(endDate);
       const startHour = startRecord?.hour !== null && startRecord?.hour !== undefined
         ? `${String(startRecord.hour).padStart(2, '0')}h`
         : null;
@@ -870,11 +956,19 @@ export default function App() {
         ? `${startDay} · ${startHour ?? '--'} → ${endHour ?? '--'}`
         : `${startDay}${startHour ? ` · ${startHour}` : ''} → ${endDay}${endHour ? ` · ${endHour}` : ''}`;
     } else {
-      const firstLabel = DATE_FORMATTER.format(toUTCDate(startRecord.date));
+      const firstDate = toUTCDate(startRecord.date);
+      if (!firstDate) {
+        return null;
+      }
+      const firstLabel = DATE_FORMATTER.format(firstDate);
       if (sourceRecords.length === 1) {
         label = firstLabel;
       } else {
-        const lastLabel = DATE_FORMATTER.format(toUTCDate(endRecord.date));
+        const lastDate = toUTCDate(endRecord.date);
+        if (!lastDate) {
+          return null;
+        }
+        const lastLabel = DATE_FORMATTER.format(lastDate);
         label = firstLabel === lastLabel ? firstLabel : `${firstLabel} → ${lastLabel}`;
       }
     }
@@ -895,11 +989,11 @@ export default function App() {
       return null;
     }
     return {
-      temperature: buildChartInsight(intervalChartData.datasets.temperature, 'temperature'),
-      wind: buildChartInsight(intervalChartData.datasets.wind, 'wind'),
-      precipitation: buildChartInsight(intervalChartData.datasets.precipitation, 'precipitation'),
+      temperature: buildChartInsight(intervalChartData.datasets.temperature, 'temperature', NUMBER_FORMATTER),
+      wind: buildChartInsight(intervalChartData.datasets.wind, 'wind', NUMBER_FORMATTER),
+      precipitation: buildChartInsight(intervalChartData.datasets.precipitation, 'precipitation', NUMBER_FORMATTER),
     };
-  }, [intervalChartData]);
+  }, [intervalChartData, NUMBER_FORMATTER]);
 
   function handleSuggestionSelect(suggestion) {
     setQuery(suggestion.description);
@@ -955,11 +1049,17 @@ export default function App() {
   function openCalendar(mode = 'single') {
     setCalendarMode(mode);
     setCalendarOpen(true);
-    setRepeatDateDraft((previous) => (!previous || previous < weatherStartDate ? weatherStartDate : previous));
+    setRepeatDateDraft((previous) => (!previous || !weatherStartDate || previous < weatherStartDate ? weatherStartDate : previous));
     setRepeatMonthCursor(() => {
-      const d = toUTCDate(weatherStartDate);
-      d.setUTCDate(1);
-      return d.toISOString().slice(0, 10);
+      if (weatherStartDate) {
+        const d = toUTCDate(weatherStartDate);
+        d.setUTCDate(1);
+        return d.toISOString().slice(0, 10);
+      } else {
+        const base = new Date();
+        base.setUTCDate(1);
+        return base.toISOString().slice(0, 10);
+      }
     });
   }
 
@@ -1022,10 +1122,15 @@ export default function App() {
       closeCalendar();
       return;
     }
-    const setAll = new Set([weatherStartDate, ...repeatDates]);
+    const setAll = new Set([weatherStartDate, ...repeatDates].filter(Boolean));
     if (setAll.has(dateStr)) {
-      if (setAll.size === 1) return;
       setAll.delete(dateStr);
+      // If all dates are deselected, clear everything
+      if (setAll.size === 0) {
+        setWeatherStartDate(null);
+        setRepeatDates([]);
+        return;
+      }
     } else {
       setAll.add(dateStr);
     }
@@ -1047,13 +1152,13 @@ export default function App() {
           >
             <header className="repeat-dialog__header">
               <h3 id="repeat-dialog-title">
-                {calendarMode === 'single' ? 'Selecionar data' : 'Selecionar dias'}
+                {calendarMode === 'single' ? 'Select date' : 'Select days'}
               </h3>
               <button
                 type="button"
                 className="repeat-close"
                 onClick={closeCalendar}
-                aria-label="Fechar seleção de dias"
+                aria-label="Close date selection"
               >
                 ×
               </button>
@@ -1064,29 +1169,29 @@ export default function App() {
                   type="button"
                   className="mini-cal-nav"
                   onClick={() => shiftMonth(-1)}
-                  aria-label="Mês anterior"
+                  aria-label="Previous month"
                 >
                   ‹
                 </button>
                 {(() => {
                   const d = toUTCDate(repeatMonthCursor);
-                  const month = d.toLocaleString('pt-BR', { month: 'long', timeZone: 'UTC' });
+                  const month = d.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
                   return <h4 className="mini-cal-title">{month} {d.getUTCFullYear()}</h4>;
                 })()}
                 <button
                   type="button"
                   className="mini-cal-nav"
                   onClick={() => shiftMonth(1)}
-                  aria-label="Próximo mês"
+                  aria-label="Next month"
                 >
                   ›
                 </button>
               </div>
-              <table className="mini-cal" role="grid" aria-label={calendarMode === 'single' ? 'Calendário de seleção única' : 'Calendário de seleção múltipla'}>
+              <table className="mini-cal" role="grid" aria-label={calendarMode === 'single' ? 'Single-date calendar' : 'Multi-date calendar'}>
                 <thead>
                   <tr>
-                    {['D','S','T','Q','Q','S','S'].map((wd) => (
-                      <th key={wd} scope="col">{wd}</th>
+                    {['S','M','T','W','T','F','S'].map((wd, idx) => (
+                      <th key={`weekday-${idx}`} scope="col">{wd}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1097,18 +1202,17 @@ export default function App() {
                         if (!cell) {
                           return <td key={`c-${wi}-${ci}`} className="empty" />;
                         }
-                        const selectedSet = new Set([weatherStartDate, ...repeatDates]);
-                        const isBase = cell === weatherStartDate;
-                        const isSelected = selectedSet.has(cell) && !isBase;
+                        const selectedSet = new Set([weatherStartDate, ...repeatDates].filter(Boolean));
+                        const isSelected = selectedSet.has(cell);
                         const disabled = false;
-                        const label = DATE_FORMATTER.format(toUTCDate(cell));
+                        const utcDate = toUTCDate(cell);
+                        const label = utcDate ? DATE_FORMATTER.format(utcDate) : cell;
                         return (
                           <td key={cell}>
                             <button
                               type="button"
                               className={
                                 'mini-cal-day' +
-                                (isBase ? ' base' : '') +
                                 (isSelected ? ' picked' : '') +
                                 (disabled ? ' disabled' : '') +
                                 (calendarMode === 'single' ? ' single-mode' : '')
@@ -1116,7 +1220,7 @@ export default function App() {
                               onClick={() => !disabled && toggleRepeatDate(cell)}
                               disabled={disabled}
                               aria-pressed={isSelected}
-                              aria-label={isBase ? `${label} (data inicial)` : label}
+                              aria-label={label}
                             >
                               {Number(cell.slice(-2))}
                             </button>
@@ -1129,28 +1233,40 @@ export default function App() {
               </table>
               {calendarMode === 'repeat' && (
                 <div className="repeat-summary repeat-summary--dialog">
-                  <span className="repeat-summary__label">Dias selecionados</span>
-                  {repeatDates.length === 0 ? (
-                    <p className="repeat-summary__empty">Somente a data base — clique em outras para adicionar.</p>
-                  ) : (
-                    <ul className="repeat-summary__list">
-                      {[weatherStartDate, ...repeatDates].map((date) => (
-                        <li key={`dialog-${date}`} className={date === weatherStartDate ? 'repeat-pill base-pill' : 'repeat-pill'}>
-                          <span>{DATE_FORMATTER.format(toUTCDate(date))}</span>
-                          {date !== weatherStartDate && (
-                            <button
-                              type="button"
-                              onClick={() => handleRepeatRemove(date)}
-                              aria-label={`Remover ${DATE_FORMATTER.format(toUTCDate(date))}`}
-                            >
-                              ×
-                            </button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <p className="repeat-summary__hint">Clique novamente em um dia para removê-lo (exceto o primeiro).</p>
+                  <span className="repeat-summary__label">Selected days</span>
+                  {(() => {
+                    const selectedSet = new Set([weatherStartDate, ...repeatDates].filter(Boolean));
+                    const allSelected = Array.from(selectedSet).sort();
+                    
+                    if (allSelected.length === 0) {
+                      return <p className="repeat-summary__empty">No dates selected—click days to add them.</p>;
+                    }
+                    
+                    return (
+                      <ul className="repeat-summary__list">
+                        {allSelected.map((date) => {
+                          const utcDate = toUTCDate(date);
+                          if (!utcDate) {
+                            return null;
+                          }
+                          const formattedDate = DATE_FORMATTER.format(utcDate);
+                          return (
+                            <li key={`dialog-${date}`} className="repeat-pill">
+                              <span>{formattedDate}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRepeatRemove(date)}
+                                aria-label={`Remove ${formattedDate}`}
+                              >
+                                ×
+                              </button>
+                            </li>
+                          );
+                        }).filter(Boolean)}
+                      </ul>
+                    );
+                  })()}
+                  <p className="repeat-summary__hint">{t.clickAgainToRemove}</p>
                 </div>
               )}
             </div>
@@ -1162,11 +1278,11 @@ export default function App() {
                   onClick={handleRepeatClear}
                   disabled={repeatDates.length === 0}
                 >
-                  Limpar seleção
+                  {t.clearSelection}
                 </button>
               )}
               <button type="button" className="cta" onClick={closeCalendar}>
-                Concluir
+                {t.done}
               </button>
             </div>
           </div>
@@ -1176,21 +1292,38 @@ export default function App() {
 
       <header className="app-header" role="banner">
         <div className="brand" aria-label="Rain">
-          <span className="brand__name">RAIN</span>
+          <span className="brand__name">
+            <span className="brand__letter">R</span>
+            <span className="brand__letter brand__letter--animated">A</span>
+            <span className="brand__letter brand__letter--animated">I</span>
+            <span className="brand__letter">N</span>
+          </span>
         </div>
-        <p className="brand__tagline">Inteligência atmosférica em escala orbital.</p>
+        <p className="brand__tagline">{t.tagline}</p>
+        <div className="language-selector">
+          <label htmlFor="language-select" className="visually-hidden">{t.language}</label>
+          <select 
+            id="language-select"
+            value={locale} 
+            onChange={(e) => handleLocaleChange(e.target.value)}
+            className="language-select"
+          >
+            <option value="en">English</option>
+            <option value="pt">Português BR</option>
+          </select>
+        </div>
       </header>
 
       <section className="interface-grid">
         <article className="panel search-panel">
           <header className="panel-header">
-            <h2>Inserir localização</h2>
-            <p>Insira um local no mundo para gerar a previsão.</p>
+            <h2>{t.searchTitle}</h2>
+            <p>{t.searchDescription}</p>
           </header>
 
           <form className="search-form" onSubmit={handleSubmit}>
             <label htmlFor="place-query" className="search-label">
-              Local desejado
+              {t.desiredLocation}
               <div className="autocomplete">
                 <input
                   id="place-query"
@@ -1200,11 +1333,11 @@ export default function App() {
                   onChange={handleQueryChange}
                   onFocus={handleInputFocus}
                   onBlur={handleInputBlur}
-                  placeholder="Ex.: Parque Ibirapuera, São Paulo"
+                  placeholder={t.placeholder}
                   autoComplete="off"
                   required={!selectedPlaceId}
                 />
-                {autocompleteLoading && <span className="autocomplete-status">Buscando…</span>}
+                {autocompleteLoading && <span className="autocomplete-status">{t.searching}</span>}
                 {suggestionsVisible && suggestions.length > 0 && (
                   <ul className="autocomplete-list" role="listbox">
                     {suggestions.map((suggestion) => (
@@ -1226,17 +1359,17 @@ export default function App() {
                   suggestionsVisible &&
                   suggestions.length === 0 &&
                   query.trim().length >= 3 && (
-                    <div className="autocomplete-empty">Nenhuma sugestão encontrada.</div>
+                    <div className="autocomplete-empty">{t.noSuggestions}</div>
                   )}
               </div>
             </label>
 
             <div className="search-actions">
               <button type="submit" className="cta" disabled={loading}>
-                {loading ? 'Buscando…' : 'Buscar Local'}
+                {loading ? t.searching : t.findLocation}
               </button>
               <button type="button" className="ghost" onClick={handleReset} disabled={loading}>
-                Limpar
+                {t.clear}
               </button>
             </div>
           </form>
@@ -1253,11 +1386,10 @@ export default function App() {
             <>
               <header className="result-header">
                 <div className="result-heading">
-                  <h2>{result.formatted_address ?? 'Local selecionado'}</h2>
-                  <p className="result-query">Consulta: {query || '—'}</p>
+                  <h2>{result.formatted_address ?? t.selectedLocation}</h2>
                   {result.google_maps_url && (
                     <a className="maps-link" href={result.google_maps_url} target="_blank" rel="noreferrer">
-                      Abrir no Google Maps ↗
+                      {t.openInMaps}
                     </a>
                   )}
                 </div>
@@ -1267,23 +1399,22 @@ export default function App() {
                 {mapSrc ? (
                   <iframe
                     key={mapSrc}
-                    title="Mapa do Google"
+                    title="Google Map"
                     src={mapSrc}
                     loading="lazy"
                     allowFullScreen
                     referrerPolicy="no-referrer-when-downgrade"
                   />
                 ) : (
-                  <p className="map-placeholder">Mapa indisponível. Confira o link acima.</p>
+                  <p className="map-placeholder">{t.mapUnavailable}</p>
                 )}
               </div>
             </>
           ) : (
             <div className="empty-state">
-              <h3>Pronto para decolar</h3>
+              <h3>{t.emptyTitle}</h3>
               <p>
-                Escolha um destino para visualizar o mapa interativo, copiar coordenadas e consultar o clima com dados
-                oficiais.
+                {t.emptyDescription}
               </p>
             </div>
           )}
@@ -1293,16 +1424,15 @@ export default function App() {
       {result && (
         <section className="panel weather-panel">
           <header className="panel-header">
-            <h2>Condições atmosféricas</h2>
+            <h2>{t.weatherTitle}</h2>
             <p>
-              Consulte a previsão baseada na NASA POWER para {result.formatted_address ?? 'o local selecionado'} e ajuste o
-              nível de detalhe conforme a sua necessidade.
+              {t.weatherDescription.replace('{location}', result.formatted_address ?? t.selectedLocationWeather)}
             </p>
           </header>
 
           <form className="weather-form" onSubmit={handleWeatherSubmit}>
-            <fieldset className="segmented" role="radiogroup" aria-label="Tipo de consulta de clima">
-              <legend>Tipo de consulta</legend>
+            <fieldset className="segmented" role="radiogroup" aria-label={t.forecastMode}>
+              <legend>{t.forecastMode}</legend>
               <label className={weatherMode === 'single' ? 'active' : ''}>
                 <input
                   type="radio"
@@ -1312,13 +1442,13 @@ export default function App() {
                   onChange={() => {
                     setWeatherMode('single');
                     setWeatherError(null);
-                    setWeatherEndDate(weatherStartDate);
+                    setWeatherEndDate(weatherStartDate || null);
                     setWeatherHourEnd('');
                     setRepeatDates([]);
                     setCalendarOpen(false);
                   }}
                 />
-                <span className="mode-title">Momento único</span>
+                <span className="mode-title">{t.singleMoment}</span>
               </label>
               <label className={weatherMode === 'interval' ? 'active' : ''}>
                 <input
@@ -1331,114 +1461,119 @@ export default function App() {
                     setWeatherError(null);
                     setWeatherHourStart((prev) => (prev.trim() === '' ? '0' : prev));
                     setWeatherHourEnd((prev) => (prev.trim() === '' ? '23' : prev));
-                    setWeatherEndDate((prev) => (!prev || prev < weatherStartDate ? weatherStartDate : prev));
+                    setWeatherEndDate((prev) => (!prev || !weatherStartDate || prev < weatherStartDate ? weatherStartDate : prev));
                   }}
                 />
-                <span className="mode-title">Intervalo contínuo</span>
+                <span className="mode-title">{t.continuousRange}</span>
               </label>
             </fieldset>
 
             {weatherMode === 'single' && (
               <div className="single-timing">
                 <div className="date-picker-trigger" role="button" tabIndex={0} onClick={() => openCalendar('single')} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && openCalendar('single')}>
-                  <span className="date-picker-trigger__label">Data</span>
-                  <span className="date-picker-trigger__value">{DATE_FORMATTER.format(toUTCDate(weatherStartDate))}</span>
-                </div>
-                <div className="time-input-group inline">
-                  <span className="time-input-label">
-                    Hora
-                    <span className="time-badge optional">Opcional</span>
+                  <span className="date-picker-trigger__label">{t.date}</span>
+                  <span className="date-picker-trigger__value" style={!weatherStartDate ? {opacity: 0.5} : {}}>
+                    {weatherStartDate ? (() => {
+                      const date = toUTCDate(weatherStartDate);
+                      return date ? DATE_FORMATTER.format(date) : 'Select date';
+                    })() : 'Select date'}
                   </span>
-                  <div className="time-range-row">
-                    <div className="time-input-wrapper">
-                      <input
-                        id="weather-hour-single"
-                        name="weather-hour-single"
-                        type="number"
-                        min="0"
-                        max="23"
-                        step="1"
-                        inputMode="numeric"
-                        value={weatherHourStart}
-                        onChange={(event) => {
-                          setWeatherHourStart(event.target.value);
-                          setWeatherError(null);
-                        }}
-                        placeholder="14"
-                      />
-                      <span className="time-suffix">H</span>
-                    </div>
+                </div>
+                <div className="hour-input-container">
+                  <span className="hour-input-container__label">
+                    {t.hour}
+                    <span className="time-badge optional">{t.optional}</span>
+                  </span>
+                  <div className="hour-input-container__input">
+                    <input
+                      id="weather-hour-single"
+                      name="weather-hour-single"
+                      type="number"
+                      min="0"
+                      max="23"
+                      step="1"
+                      inputMode="numeric"
+                      value={weatherHourStart}
+                      onChange={(event) => {
+                        setWeatherHourStart(event.target.value);
+                        setWeatherError(null);
+                      }}
+                      placeholder="14"
+                    />
+                    <span className="time-suffix">H</span>
                   </div>
                 </div>
               </div>
             )}
             {weatherMode === 'interval' && (
-              <div className="interval-grid" role="group" aria-label="Intervalo de datas e horas">
-                <div className="interval-column">
-                  <div className="date-picker-trigger" role="button" tabIndex={0} onClick={() => openCalendar('repeat')} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && openCalendar('repeat')}>
-                    <span className="date-picker-trigger__label">Datas</span>
-                    <span className="date-picker-trigger__value">
-                      {[weatherStartDate, ...repeatDates].map((d) => SHORT_DATE_FORMATTER.format(toUTCDate(d))).join(', ')}
-                    </span>
-                  </div>
-                  <div className="time-input-group inline">
-                    <span className="time-input-label">Horas</span>
-                    <div className="time-range-row">
-                      <div className="time-input-wrapper">
-                        <input
-                          id="weather-hour-start"
-                          name="weather-hour-start"
-                          type="number"
-                          min="0"
-                          max="23"
-                          step="1"
-                          inputMode="numeric"
-                          value={weatherHourStart}
-                          onChange={(event) => {
-                            setWeatherHourStart(event.target.value);
-                            setWeatherError(null);
-                          }}
-                          required
-                        />
-                        <span className="time-suffix">H</span>
-                      </div>
-                      <span className="time-separator">→</span>
-                      <div className="time-input-wrapper">
-                        <input
-                          id="weather-hour-end"
-                          name="weather-hour-end"
-                          type="number"
-                          min="0"
-                          max="23"
-                          step="1"
-                          inputMode="numeric"
-                          value={weatherHourEnd}
-                          onChange={(event) => {
-                            setWeatherHourEnd(event.target.value);
-                            setWeatherError(null);
-                          }}
-                          required
-                        />
-                        <span className="time-suffix">H</span>
-                      </div>
-                    </div>
+              <div className="interval-grid" role="group" aria-label="Date and time range">
+                <div className="date-picker-trigger" role="button" tabIndex={0} onClick={() => openCalendar('repeat')} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && openCalendar('repeat')}>
+                  <span className="date-picker-trigger__label">Dates</span>
+                  <span className="date-picker-trigger__value" style={!weatherStartDate && repeatDates.length === 0 ? {opacity: 0.5} : {}}>
+                    {weatherStartDate || repeatDates.length > 0
+                      ? [weatherStartDate, ...repeatDates].filter(Boolean).map((d) => {
+                          const utcDate = toUTCDate(d);
+                          return utcDate ? SHORT_DATE_FORMATTER.format(utcDate) : null;
+                        }).filter(Boolean).join(', ')
+                      : 'Select dates'}
+                  </span>
+                  <span className="date-picker-trigger__hint">
+                    {weatherStartDate || repeatDates.length > 0 ? `${[weatherStartDate, ...repeatDates].filter(Boolean).length} selected` : ''}
+                  </span>
+                </div>
+                
+                <div className="hour-input-container">
+                  <span className="hour-input-container__label">
+                    {t.startHour}
+                  </span>
+                  <div className="hour-input-container__input">
+                    <input
+                      id="weather-hour-start"
+                      name="weather-hour-start"
+                      type="number"
+                      min="0"
+                      max="23"
+                      step="1"
+                      inputMode="numeric"
+                      value={weatherHourStart}
+                      onChange={(event) => {
+                        setWeatherHourStart(event.target.value);
+                        setWeatherError(null);
+                      }}
+                      required
+                    />
+                    <span className="time-suffix">H</span>
                   </div>
                 </div>
-                <div className="interval-column">
-                  <div className="repeat-summary">
-                    <span className="repeat-summary__label">Dias</span>
-                    <p className="repeat-summary__hint">
-                      {repeatDates.length === 0
-                        ? 'Apenas a data base.'
-                        : `${repeatDates.length + 1} selecionados.`}
-                    </p>
+
+                <div className="hour-input-container">
+                  <span className="hour-input-container__label">
+                    {t.endHour}
+                  </span>
+                  <div className="hour-input-container__input">
+                    <input
+                      id="weather-hour-end"
+                      name="weather-hour-end"
+                      type="number"
+                      min="0"
+                      max="23"
+                      step="1"
+                      inputMode="numeric"
+                      value={weatherHourEnd}
+                      onChange={(event) => {
+                        setWeatherHourEnd(event.target.value);
+                        setWeatherError(null);
+                      }}
+                      required
+                    />
+                    <span className="time-suffix">H</span>
                   </div>
                 </div>
               </div>
             )}
 
-            <button type="submit" className="cta" disabled={weatherLoading}>
-              {weatherLoading ? 'Consultando…' : 'Consultar clima'}
+            <button type="submit" className="cta" disabled={weatherLoading || !weatherStartDate}>
+              {weatherLoading ? t.loading : t.loadWeather}
             </button>
           </form>
 
@@ -1451,9 +1586,8 @@ export default function App() {
           {weatherResult && (
             <div className={hasIntervalSeries ? 'weather-outcome interval' : 'weather-outcome'}>
               <header className="weather-summary-header">
-                <h3>{weatherTitle || 'Resumo climático'}</h3>
                 {weatherResult.granularity !== 'hourly' && requestedRangeLabel && (
-                  <p className="weather-meta">Período: {requestedRangeLabel}</p>
+                  <p className="weather-meta">Period: {requestedRangeLabel}</p>
                 )}
               </header>
 
@@ -1469,13 +1603,17 @@ export default function App() {
               )}
 
               {hasIntervalSeries && intervalDates.length > 0 && (
-                <div className="interval-day-selector" role="group" aria-label="Selecionar dia do intervalo">
-                  <span className="interval-day-selector__label">Dias disponíveis</span>
+                <div className="interval-day-selector" role="group" aria-label="Select day within range">
+                  <span className="interval-day-selector__label">Available days</span>
                   <div className="interval-day-selector__options">
                     {intervalDates.map((date) => {
                       const isActive = date === selectedIntervalDate;
-                      const label = SHORT_DATE_FORMATTER.format(toUTCDate(date));
-                      const fullLabel = DATE_FORMATTER.format(toUTCDate(date));
+                      const utcDate = toUTCDate(date);
+                      if (!utcDate) {
+                        return null;
+                      }
+                      const label = SHORT_DATE_FORMATTER.format(utcDate);
+                      const fullLabel = DATE_FORMATTER.format(utcDate);
                       return (
                         <button
                           key={date}
@@ -1488,7 +1626,7 @@ export default function App() {
                           {label}
                         </button>
                       );
-                    })}
+                    }).filter(Boolean)}
                   </div>
                 </div>
               )}
@@ -1511,11 +1649,15 @@ export default function App() {
                         ? `${String(startHour).padStart(2, '0')}h${hasIntervalSeriesEntry ? ` – ${String(endHour).padStart(2, '0')}h` : ''}`
                         : null;
 
-                    const dateLabel = DATE_FORMATTER.format(toUTCDate(entry.date));
+                    const utcDate = toUTCDate(entry.date);
+                    if (!utcDate) {
+                      return null;
+                    }
+                    const dateLabel = DATE_FORMATTER.format(utcDate);
                     const headingLabel = dateLabel;
                     const metaLabel = weatherResult.granularity === 'daily'
-                      ? 'Dados diários'
-                      : hourLabel ?? 'Dados horários';
+                      ? t.dailyData
+                      : hourLabel ?? t.hourlyData;
 
                     return (
                       <article
@@ -1531,54 +1673,54 @@ export default function App() {
 
                         <dl className="weather-day__metrics">
                           <div className="weather-day__metric">
-                            <dt>Temperatura</dt>
+                            <dt>Temperature</dt>
                             <dd>{formatMetric(entry.t2m, weatherUnits.T2M ?? '°C')}</dd>
                           </div>
                           {weatherResult.granularity === 'daily' && (
                             <>
                               <div className="weather-day__metric">
-                                <dt>Máxima</dt>
+                                <dt>High</dt>
                                 <dd>{formatMetric(entry.t2m_max, weatherUnits.T2M ?? '°C')}</dd>
                               </div>
                               <div className="weather-day__metric">
-                                <dt>Mínima</dt>
+                                <dt>Low</dt>
                                 <dd>{formatMetric(entry.t2m_min, weatherUnits.T2M ?? '°C')}</dd>
                               </div>
                             </>
                           )}
                           <div className="weather-day__metric">
-                            <dt>Vento a 10 m</dt>
+                            <dt>10 m wind</dt>
                             <dd>{formatMetric(entry.ws10m, weatherUnits.WS10M ?? 'm/s')}</dd>
                           </div>
                           <div className="weather-day__metric">
-                            <dt>Precipitação</dt>
+                            <dt>Precipitation</dt>
                             <dd>{formatMetric(entry.precip_mm, weatherUnits.PRECTOTCORR ?? weatherUnits.PRECTOT ?? 'mm')}</dd>
                           </div>
                         </dl>
                       </article>
                     );
-                  })}
+                  }).filter(Boolean)}
                 </div>
               )}
 
               {hasIntervalSeries && intervalChartData && (
                 <div className="weather-chart-card">
                   <header>
-                    <h4>Variação no intervalo selecionado</h4>
+                    <h4>Variation across the selected range</h4>
                     <p>
-                      Explore a evolução de temperatura, vento e precipitação hora a hora.
+                      Explore how temperature, wind, and precipitation evolve hour by hour.
                       {selectedIntervalDateLabel && (
                         <>
                           {' '}
-                          <span className="chart-day-label">Dia selecionado: {selectedIntervalDateLabel}</span>
+                          <span className="chart-day-label">Selected day: {selectedIntervalDateLabel}</span>
                         </>
                       )}
                     </p>
                   </header>
                   <div className="chart-grid">
                     {temperatureChartData && temperatureChartOptions && (
-                      <article className="chart-panel" aria-label="Gráfico de temperatura por hora">
-                        <h5>Temperatura</h5>
+                      <article className="chart-panel" aria-label="Hourly temperature chart">
+                        <h5>Temperature</h5>
                         <p className="chart-insight">{chartInsights?.temperature}</p>
                         <div className="chart-canvas">
                           <Line key={`temperature-${selectedIntervalDate ?? 'none'}`} options={temperatureChartOptions} data={temperatureChartData} />
@@ -1586,8 +1728,8 @@ export default function App() {
                       </article>
                     )}
                     {windChartData && windChartOptions && (
-                      <article className="chart-panel" aria-label="Gráfico de vento por hora">
-                        <h5>Vento</h5>
+                      <article className="chart-panel" aria-label="Hourly wind chart">
+                        <h5>Wind</h5>
                         <p className="chart-insight">{chartInsights?.wind}</p>
                         <div className="chart-canvas">
                           <Line key={`wind-${selectedIntervalDate ?? 'none'}`} options={windChartOptions} data={windChartData} />
@@ -1595,8 +1737,8 @@ export default function App() {
                       </article>
                     )}
                     {precipitationChartData && precipitationChartOptions && (
-                      <article className="chart-panel" aria-label="Gráfico de precipitação por hora">
-                        <h5>Precipitação</h5>
+                      <article className="chart-panel" aria-label="Hourly precipitation chart">
+                        <h5>Precipitation</h5>
                         <p className="chart-insight">{chartInsights?.precipitation}</p>
                         <div className="chart-canvas">
                           <Bar key={`precipitation-${selectedIntervalDate ?? 'none'}`} options={precipitationChartOptions} data={precipitationChartData} />
@@ -1612,7 +1754,7 @@ export default function App() {
       )}
 
       <footer className="footer">
-        <small>Fontes de dados: Google Maps Platform · NASA POWER</small>
+        <small>{t.dataSources}</small>
       </footer>
     </main>
   );

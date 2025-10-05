@@ -329,15 +329,33 @@ async def fetch_power_weather(
     if not time_keys:
         raise PowerAPIError("Nenhum dado temporal disponível na resposta da NASA POWER.")
 
-    start_key = f"{start}{hour_start:02d}"
-    end_key = f"{end}{effective_hour_end:02d}"
-
-    range_records: List[PowerWeatherRecord] = []
-    for time_key in time_keys:
-        if start_key <= time_key <= end_key:
-            record = _build_hourly_record(parameters, time_key, fill_value)
-            if record is not None:
-                range_records.append(record)
+    # Se for multi-dia com intervalo de horas, filtra apenas as horas específicas de cada dia
+    if multi_day_interval:
+        range_records: List[PowerWeatherRecord] = []
+        for time_key in time_keys:
+            # time_key formato: YYYYMMDDHH
+            if len(time_key) >= 10:
+                date_part = time_key[:8]  # YYYYMMDD
+                hour_part = int(time_key[8:10])  # HH
+                
+                # Verifica se a data está no range
+                if start <= date_part <= end:
+                    # Verifica se a hora está no intervalo especificado
+                    if hour_start <= hour_part <= effective_hour_end:
+                        record = _build_hourly_record(parameters, time_key, fill_value)
+                        if record is not None:
+                            range_records.append(record)
+    else:
+        # Modo de dia único: pega todas as horas do intervalo
+        start_key = f"{start}{hour_start:02d}"
+        end_key = f"{end}{effective_hour_end:02d}"
+        
+        range_records: List[PowerWeatherRecord] = []
+        for time_key in time_keys:
+            if start_key <= time_key <= end_key:
+                record = _build_hourly_record(parameters, time_key, fill_value)
+                if record is not None:
+                    range_records.append(record)
 
     if not range_records:
         raise PowerAPIError("Nenhum dado meteorológico utilizável encontrado para o intervalo informado.")

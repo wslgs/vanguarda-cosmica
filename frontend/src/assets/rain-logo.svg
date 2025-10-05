@@ -1,6 +1,6 @@
 <svg width="120" height="48" viewBox="0 0 120 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="rainLogoTitle rainLogoDesc">
   <title id="rainLogoTitle">Logotipo Rain</title>
-  <desc id="rainLogoDesc">Ícone em forma de gota com linhas orbitais.</desc>
+  <desc id="rainLogoDesc">Drop-shaped icon with orbital lines.</desc>
   <defs>
     <linearGradient id="rainGradient" x1="10" y1="4" x2="62" y2="38" gradientUnits="userSpaceOnUse">
       <stop stop-color="#7CF1FF" />

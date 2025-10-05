@@ -44,29 +44,29 @@ export default function IdeaForm({ challenges, onSubmit, loading }) {
   return (
     <form className="idea-form" onSubmit={handleSubmit}>
       <label>
-        Nome do time
+        Team name
         <input
           type="text"
           name="team_name"
           value={values.team_name}
           onChange={handleChange}
-          placeholder="ex: Aurora Atlântica"
+          placeholder="e.g., Aurora Vanguard"
           required
         />
       </label>
       <label>
-        E-mail de contato
+        Contact email
         <input
           type="email"
           name="contact_email"
           value={values.contact_email}
           onChange={handleChange}
-          placeholder="voce@equipe.space"
+          placeholder="you@team.space"
           required
         />
       </label>
       <label>
-        Desafio focado
+        Target challenge
         <select
           name="challenge_id"
           value={values.challenge_id}
@@ -74,7 +74,7 @@ export default function IdeaForm({ challenges, onSubmit, loading }) {
           required
         >
           <option value="" disabled>
-            Selecione um desafio
+            Select a challenge
           </option>
           {challenges.map((challenge) => (
             <option key={challenge.id} value={challenge.id}>
@@ -84,7 +84,7 @@ export default function IdeaForm({ challenges, onSubmit, loading }) {
         </select>
       </label>
       <label>
-        Título da solução
+        Solution title
         <input
           type="text"
           name="concept_title"
@@ -95,19 +95,19 @@ export default function IdeaForm({ challenges, onSubmit, loading }) {
         />
       </label>
       <label>
-        Visão geral (mínimo 20 caracteres)
+        Overview (minimum 20 characters)
         <textarea
           name="summary"
           value={values.summary}
           onChange={handleChange}
           rows={4}
-          placeholder="Como a solução combina dados orbitais e acionáveis?"
+          placeholder="How does the solution combine orbital and actionable data?"
           required
         />
       </label>
 
       <button type="submit" disabled={!isValid || loading}>
-        {loading ? 'Transmitindo...' : 'Enviar proposta' }
+        {loading ? 'Transmitting...' : 'Submit proposal' }
       </button>
     </form>
   );

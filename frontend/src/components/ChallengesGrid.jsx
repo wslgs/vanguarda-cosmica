@@ -1,7 +1,7 @@
 export default function ChallengesGrid({ challenges }) {
   return (
     <article className="panel challenges">
-      <h2>Desafios Prioritários</h2>
+      <h2>Priority challenges</h2>
       <div className="challenges__grid">
         {challenges.map((challenge) => (
           <div key={challenge.id} className="challenge-card">

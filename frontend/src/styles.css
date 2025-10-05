@@ -71,6 +71,7 @@ main {
   gap: 0.65rem;
   align-items: flex-start;
   padding: 0.25rem 0;
+  position: relative;
 }
 
 @media (min-width: 640px) {
@@ -97,6 +98,64 @@ main {
   font-weight: 700;
   color: rgba(233, 235, 255, 0.95);
   text-transform: uppercase;
+  display: inline-flex;
+}
+
+.brand__letter {
+  display: inline-block;
+}
+
+.brand__letter--animated {
+  transform-origin: center;
+  transition: color 0.6s ease, text-shadow 0.6s ease;
+  color: rgba(233, 235, 255, 0.95);
+  text-shadow: none;
+}
+
+.brand:hover .brand__letter--animated,
+.brand--active .brand__letter--animated {
+  color: rgba(168, 197, 255, 1);
+  text-shadow: 0 0 12px rgba(107, 158, 255, 0.6),
+               0 0 24px rgba(107, 158, 255, 0.3);
+}
+
+.brand:hover .brand__letter--animated:nth-of-type(2),
+.brand--active .brand__letter--animated:nth-of-type(2) {
+  animation: rainDrop 0.8s ease-in-out;
+}
+
+.brand:hover .brand__letter--animated:nth-of-type(3),
+.brand--active .brand__letter--animated:nth-of-type(3) {
+  animation: rainDrop 0.8s ease-in-out 0.5s;
+}
+
+.brand__letter--animated:nth-of-type(2) {
+  animation-delay: 0.5s;
+}
+
+.brand__letter--animated:nth-of-type(3) {
+  animation-delay: 1s;
+}
+
+@keyframes rainDrop {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  15% {
+    transform: translateY(-8px) scale(1.08);
+    opacity: 0.85;
+  }
+  30% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  45% {
+    transform: translateY(2px) scale(0.98);
+  }
+  60% {
+    transform: translateY(0) scale(1);
+  }
 }
 
 .brand__tagline {
@@ -105,6 +164,62 @@ main {
   color: rgba(204, 209, 255, 0.72);
   font-size: 0.95rem;
   line-height: 1.6;
+}
+
+/* Language Selector */
+.language-selector {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+@media (min-width: 640px) {
+  .language-selector {
+    position: static;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.language-select {
+  appearance: none;
+  background: rgba(12, 16, 45, 0.5);
+  border: 1px solid rgba(132, 146, 255, 0.25);
+  border-radius: 12px;
+  padding: 0.5rem 2rem 0.5rem 0.85rem;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23a9b4ff' d='M1.41 0L6 4.59L10.59 0L12 1.41l-6 6l-6-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 12px;
+}
+
+.language-select:hover {
+  border-color: rgba(132, 146, 255, 0.45);
+  background-color: rgba(12, 16, 45, 0.65);
+}
+
+.language-select:focus {
+  outline: 2px solid rgba(124, 241, 255, 0.5);
+  outline-offset: 2px;
+  border-color: var(--color-accent);
+}
+
+.language-select option {
+  background: #0c0e2d;
+  color: var(--color-text);
 }
 
 .cosmic-backdrop {
@@ -178,7 +293,7 @@ main {
 @media (min-width: 960px) {
   .interface-grid {
     grid-template-columns: 1fr 1.1fr;
-    align-items: start;
+    align-items: stretch;
   }
 }
 
@@ -192,6 +307,7 @@ main {
   display: flex;
   flex-direction: column;
   gap: 1.4rem;
+  height: 100%;
 }
 
 .panel h2 {
@@ -443,12 +559,12 @@ main {
   overflow: hidden;
   border: 1px solid rgba(161, 178, 255, 0.22);
   background: radial-gradient(circle at 50% 20%, rgba(124, 241, 255, 0.18), transparent 65%), rgba(3, 6, 20, 0.85);
-  min-height: 260px;
+  min-height: 160px;
 }
 
 .map-wrapper iframe {
   width: 100%;
-  height: clamp(260px, 35vw, 360px);
+  height: clamp(160px, 20vw, 200px);
   border: none;
 }
 
@@ -491,7 +607,7 @@ main {
   align-items: end;
 }
 
-/* Elementos que devem ocupar a largura completa dentro do grid */
+/* Elements that should stretch across the entire grid width */
 .weather-form .segmented,
 .weather-form .single-timing,
 .weather-form .interval-grid,
@@ -499,7 +615,7 @@ main {
   grid-column: 1 / -1;
 }
 
-/* Melhor alinhamento do botão de submit */
+/* Improve submit button alignment */
 .weather-form > button.cta {
   justify-self: start;
 }
@@ -598,33 +714,34 @@ main {
   letter-spacing: 0.03em;
 }
 
-.single-timing {
-  display: grid;
-  gap: 1rem;
-  width: 100%;
-}
-
-@media (min-width: 540px) {
-  .single-timing {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: end;
-  }
-}
-
+.single-timing,
 .interval-grid {
   display: grid;
   gap: 1.4rem;
 }
 
 @media (min-width: 720px) {
+  .single-timing,
   .interval-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    align-items: start;
+  }
+  
+  .single-timing .date-picker-trigger,
+  .interval-grid .date-picker-trigger {
+    grid-column: span 1;
+  }
+  
+  .single-timing .hour-input-container,
+  .interval-grid .hour-input-container {
+    grid-column: span 1;
   }
 }
 
 .interval-column {
   display: grid;
-  gap: 0.95rem;
+  gap: 1.4rem;
 }
 
 /* ================= Time Inputs ================= */
@@ -650,6 +767,23 @@ main {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+}
+
+.time-input-label-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+
+.time-input-label-wrapper .time-input-label {
+  margin: 0;
+}
+
+.time-input-label-wrapper .time-badge.optional {
+  font-size: 0.6rem;
+  padding: 0.15rem 0.45rem;
+  margin-left: 0;
 }
 
 .time-input-wrapper {
@@ -896,7 +1030,7 @@ main {
   gap: 0.85rem;
 }
 
-/* Mini calendário multi-seleção */
+/* Multi-select mini calendar */
 .mini-cal-header {
   display: flex;
   align-items: center;
@@ -1009,6 +1143,8 @@ main {
   gap: 0.35rem;
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  align-content: start;
+  min-height: 96px;
 }
 
 .date-picker-trigger:focus-visible,
@@ -1025,12 +1161,15 @@ main {
   letter-spacing: 0.08em;
   color: rgba(200, 204, 255, 0.6);
   font-weight: 600;
+  line-height: 1;
 }
 
 .date-picker-trigger__value {
   font-weight: 600;
   color: rgba(232, 235, 255, 0.95);
   font-size: 0.95rem;
+  line-height: 1.4;
+  padding: 0.5rem 0;
 }
 
 .date-picker-trigger__hint {
@@ -1039,6 +1178,87 @@ main {
   text-transform: uppercase;
   color: rgba(190, 196, 255, 0.5);
   font-weight: 500;
+  line-height: 1.2;
+  margin-top: -0.15rem;
+}
+
+/* Hour Input Container - Similar to date-picker-trigger */
+.hour-input-container {
+  border: 1px solid rgba(132, 146, 255, 0.3);
+  background: rgba(10, 14, 40, 0.55);
+  padding: 0.85rem 1rem;
+  border-radius: 16px;
+  display: grid;
+  gap: 0.35rem;
+  transition: border-color 0.2s ease, background 0.2s ease;
+  align-content: center;
+  min-height: 96px;
+}
+
+.hour-input-container:focus-within {
+  border-color: rgba(124, 241, 255, 0.65);
+  background: rgba(12, 18, 48, 0.75);
+}
+
+.hour-input-container__label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(200, 204, 255, 0.6);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  line-height: 1;
+}
+
+.hour-input-container__label .time-badge.optional {
+  font-size: 0.6rem;
+  padding: 0.15rem 0.45rem;
+  margin-left: 0;
+}
+
+.hour-input-container__input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hour-input-container__input input[type='number'] {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(161, 178, 255, 0.26);
+  background: rgba(5, 9, 32, 0.75);
+  color: rgba(232, 235, 255, 0.95);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  line-height: 1.4;
+}
+
+.hour-input-container__input input[type='number']:focus {
+  outline: none;
+  border-color: rgba(124, 241, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(124, 241, 255, 0.18);
+}
+
+.hour-input-container__input input[type='number']::-webkit-outer-spin-button,
+.hour-input-container__input input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.hour-input-container__input .time-suffix {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: rgba(190, 196, 255, 0.65);
+  user-select: none;
 }
 
 .mini-cal-day.disabled {

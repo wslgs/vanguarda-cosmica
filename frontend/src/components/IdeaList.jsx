@@ -1,5 +1,5 @@
 function formatDate(value) {
-  return new Intl.DateTimeFormat('pt-BR', {
+  return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
@@ -9,10 +9,10 @@ function formatDate(value) {
 export default function IdeaList({ ideas, challengesById }) {
   return (
     <aside className="panel idea-list">
-      <h2>Últimas propostas</h2>
+      <h2>Latest submissions</h2>
       {ideas.length === 0 ? (
         <p className="empty-state">
-          Nenhuma ideia registrada ainda. Seja a primeira equipe a enviar uma proposta!
+          No ideas have been registered yet. Be the first team to submit a proposal!
         </p>
       ) : (
         <ul>
@@ -28,7 +28,7 @@ export default function IdeaList({ ideas, challengesById }) {
                 <p>{idea.submission.summary}</p>
                 <footer>
                   <span className="challenge-pill">
-                    Desafio #{idea.submission.challenge_id} · {challenge?.title ?? 'Desconhecido'}
+                    Challenge #{idea.submission.challenge_id} · {challenge?.title ?? 'Unknown'}
                   </span>
                 </footer>
               </li>

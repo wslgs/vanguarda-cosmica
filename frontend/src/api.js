@@ -3,7 +3,7 @@ const API_BASE = import.meta.env.VITE_API_BASE?.replace(/\/$/, '') ?? '';
 async function handleResponse(response) {
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
-    const message = detail?.detail ?? 'Erro inesperado na API.';
+  const message = detail?.detail ?? 'Unexpected API error.';
     throw new Error(message);
   }
   return response.json();

@@ -33,18 +33,18 @@ class GeocodeRequest(BaseModel):
     query: Optional[str] = Field(
         default=None,
         min_length=3,
-        description="Local informado pelo usuário (endereço, ponto de interesse etc.).",
+        description="Place provided by the user (address, point of interest, etc.).",
     )
     place_id: Optional[str] = Field(
         default=None,
         min_length=3,
-        description="Identificador único retornado pelo Google Places Autocomplete.",
+        description="Unique identifier returned by Google Places Autocomplete.",
     )
 
     @model_validator(mode="after")
     def validate_input(self) -> "GeocodeRequest":
         if not self.query and not self.place_id:
-            raise ValueError("Informe um texto de busca ou selecione uma sugestão válida.")
+            raise ValueError("Provide a search text or select a valid suggestion.")
         return self
 
 
@@ -74,10 +74,10 @@ class WeatherFlags(BaseModel):
 
 class WeatherRecord(BaseModel):
     date: str
-    hour: Optional[int] = Field(default=None, description="Hora inicial no intervalo [0, 23] quando a granularidade for horária.")
+    hour: Optional[int] = Field(default=None, description="Starting hour in the [0, 23] range when the granularity is hourly.")
     hour_end: Optional[int] = Field(
         default=None,
-        description="Hora final (inclusive) para intervalos horários agregados."
+        description="Ending hour (inclusive) for aggregated hourly intervals."
     )
     t2m: Optional[float] = None
     t2m_max: Optional[float] = None
@@ -102,7 +102,7 @@ class WeatherSummaryResponse(BaseModel):
     data: list[WeatherRecord]
     series: Optional[list[WeatherRecord]] = Field(
         default=None,
-        description="Série detalhada com cada hora solicitada quando houver intervalo.",
+        description="Detailed series with each requested hour when an interval is provided.",
     )
 
 

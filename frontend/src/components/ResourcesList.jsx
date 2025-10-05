@@ -1,8 +1,8 @@
 export default function ResourcesList({ resources }) {
   return (
     <article className="panel resources">
-      <h2>Recursos Orbitais</h2>
-      <p>APIs, catálogos e ferramentas recomendadas para acelerar experimentos.</p>
+      <h2>Orbital resources</h2>
+      <p>APIs, catalogs, and tools we recommend to accelerate experiments.</p>
       <ul>
         {resources.map((resource) => (
           <li key={resource.url}>
@@ -11,7 +11,7 @@ export default function ResourcesList({ resources }) {
               <span className="resource__category">{resource.category}</span>
             </div>
             <a href={resource.url} target="_blank" rel="noreferrer">
-              Acessar recurso →
+              Open resource →
             </a>
           </li>
         ))}
