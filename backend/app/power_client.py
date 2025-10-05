@@ -366,15 +366,18 @@ async def fetch_power_weather(
     # Use AI if needed
     if use_ai_fallback and can_use_ai:
         from .ai_predictor import predict_day
-        
-        # For single date or date range, predict the start date
-        ai_results = await predict_day(
-            lat=latitude,
-            lon=longitude,
-            date_str=start_date.strftime("%Y-%m-%d"),
-            years_back=6,
-            variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
-        )
+
+        try:
+            # For single date or date range, predict the start date
+            ai_results = await predict_day(
+                lat=latitude,
+                lon=longitude,
+                date_str=start_date.strftime("%Y-%m-%d"),
+                years_back=6,
+                variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+            )
+        except Exception as exc:  # pragma: no cover - handled by caller tests
+            raise PowerAPIError("Erro ao gerar previsão com IA.") from exc
         
         # Build record from AI prediction
         # Calculate accuracy scores based on RMSE
@@ -541,24 +544,27 @@ async def fetch_power_weather(
                     current += timedelta(days=1)
                 
                 # Predict all dates in parallel
-                if len(dates_to_predict) > 1:
-                    all_predictions = await predict_multiple_days(
-                        lat=latitude,
-                        lon=longitude,
-                        dates=dates_to_predict,
-                        years_back=6,
-                        variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
-                    )
-                else:
-                    # Single date
-                    single_pred = await predict_day(
-                        lat=latitude,
-                        lon=longitude,
-                        date_str=dates_to_predict[0],
-                        years_back=6,
-                        variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
-                    )
-                    all_predictions = [single_pred]
+                try:
+                    if len(dates_to_predict) > 1:
+                        all_predictions = await predict_multiple_days(
+                            lat=latitude,
+                            lon=longitude,
+                            dates=dates_to_predict,
+                            years_back=6,
+                            variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+                        )
+                    else:
+                        # Single date
+                        single_pred = await predict_day(
+                            lat=latitude,
+                            lon=longitude,
+                            date_str=dates_to_predict[0],
+                            years_back=6,
+                            variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+                        )
+                        all_predictions = [single_pred]
+                except Exception as exc:  # pragma: no cover - handled by caller tests
+                    raise PowerAPIError("Erro ao gerar previsão com IA.") from exc
                 
                 # Build hourly records from AI predictions
                 ai_hourly_records = []
@@ -686,24 +692,27 @@ async def fetch_power_weather(
                     current += timedelta(days=1)
                 
                 # Predict all dates in parallel
-                if len(dates_to_predict) > 1:
-                    all_predictions = await predict_multiple_days(
-                        lat=latitude,
-                        lon=longitude,
-                        dates=dates_to_predict,
-                        years_back=6,
-                        variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
-                    )
-                else:
-                    # Single date - use regular predict_day
-                    single_pred = await predict_day(
-                        lat=latitude,
-                        lon=longitude,
-                        date_str=dates_to_predict[0],
-                        years_back=6,
-                        variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
-                    )
-                    all_predictions = [single_pred]
+                try:
+                    if len(dates_to_predict) > 1:
+                        all_predictions = await predict_multiple_days(
+                            lat=latitude,
+                            lon=longitude,
+                            dates=dates_to_predict,
+                            years_back=6,
+                            variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+                        )
+                    else:
+                        # Single date - use regular predict_day
+                        single_pred = await predict_day(
+                            lat=latitude,
+                            lon=longitude,
+                            date_str=dates_to_predict[0],
+                            years_back=6,
+                            variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+                        )
+                        all_predictions = [single_pred]
+                except Exception as exc:  # pragma: no cover - handled by caller tests
+                    raise PowerAPIError("Erro ao gerar previsão com IA.") from exc
                 
                 # Build hourly records from AI predictions
                 ai_hourly_records = []

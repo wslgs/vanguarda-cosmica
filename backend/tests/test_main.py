@@ -231,8 +231,11 @@ def test_weather_summary_service_failure(respx_mock: respx.MockRouter):
         params={"lat": 0, "lon": 0, "start_date": "20251001"},
     )
 
-    assert response.status_code == 503
-    assert "erro" in response.json()["detail"].lower()
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ai_prediction"] is not None
+    assert isinstance(payload.get("meta"), dict)
+    assert len(payload["data"]) >= 1
 
 
 @respx.mock

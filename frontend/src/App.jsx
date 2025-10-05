@@ -1401,7 +1401,6 @@ export default function App() {
     } catch (err) {
   setWeatherResult(null);
   setWeatherError(err.message ?? 'We couldn’t retrieve the weather data.');
-  setIsUsingAI(false);
     } finally {
       setWeatherLoading(false);
     }

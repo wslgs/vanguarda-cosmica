@@ -116,11 +116,19 @@ async def test_model_metrics_validity():
             assert isinstance(metrics["RMSE"], (int, float))
             assert metrics["MAE"] >= 0
             assert metrics["RMSE"] >= 0
+
+            if var.startswith("PREC") and "F1" in metrics:
+                assert isinstance(metrics["F1"], (int, float))
+                assert 0.0 <= metrics["F1"] <= 1.0
             
             # Check prediction is a valid number
             prediction = ai_data["predictions"][var][model]
             assert isinstance(prediction, (int, float))
             assert not (prediction == float('inf') or prediction == float('-inf'))
+
+        chosen_metrics = ai_data["chosen"][var]
+        if var.startswith("PREC") and "F1" in chosen_metrics:
+            assert 0.0 <= chosen_metrics["F1"] <= 1.0
     
     print(f"\n✅ All metrics are valid numbers")
 
