@@ -400,6 +400,8 @@ export default function App() {
     base.setUTCDate(1);
     return base.toISOString().slice(0, 10);
   });
+  const [selectedLocations, setSelectedLocations] = useState([]);
+  const [multipleWeatherResults, setMultipleWeatherResults] = useState([]);
   
   function handleLocaleChange(newLocale) {
     setLocale(newLocale);
@@ -1219,6 +1221,233 @@ export default function App() {
     setSelectedIntervalDate(null);
     setRepeatDates([]);
     setRepeatDateDraft(today);
+    setSelectedLocations([]);
+    setMultipleWeatherResults([]);
+  }
+
+  function handleAddLocation() {
+    const placeId = selectedSuggestion?.place_id ?? selectedPlaceId ?? result?.place_id;
+    const description = selectedSuggestion?.description ?? result?.formatted_address ?? query.trim();
+
+    if (!placeId || !description) {
+      return;
+    }
+
+    const alreadyAdded = selectedLocations.some((location) => location.place_id === placeId);
+    if (alreadyAdded) {
+      return;
+    }
+
+    setSelectedLocations((prev) => [
+      ...prev,
+      {
+        place_id: placeId,
+        description,
+      },
+    ]);
+
+    setMultipleWeatherResults((prev) => prev.filter((entry) => entry.place_id !== placeId));
+  }
+
+  function handleRemoveLocation(placeId) {
+    setSelectedLocations((prev) => prev.filter((location) => location.place_id !== placeId));
+    setMultipleWeatherResults((prev) => prev.filter((entry) => entry.place_id !== placeId));
+  }
+
+  async function handleMultipleLocationsSubmit(event) {
+    event.preventDefault();
+
+    if (weatherLoading || selectedLocations.length === 0 || !weatherStartDate) {
+      return;
+    }
+
+    setWeatherResult(null);
+    setWeatherError(null);
+
+    const isIntervalMode = weatherMode === 'interval';
+
+    const parseHour = (value, label) => {
+      if (value === null || value === undefined) {
+        return null;
+      }
+      const trimmed = String(value).trim();
+      if (trimmed === '') {
+        setWeatherError(`${label} ${t.hourMustBeProvided}`);
+        return null;
+      }
+      const numeric = Number(trimmed);
+      if (!Number.isInteger(numeric) || numeric < 0 || numeric > 23) {
+        setWeatherError(`${label} ${t.hourMustBeInteger}`);
+        return null;
+      }
+      return numeric;
+    };
+
+    let hourStartParam = null;
+    let hourEndParam = null;
+
+    if (isIntervalMode) {
+      const startHourValue = parseHour(weatherHourStart, t.startHour);
+      const endHourValue = parseHour(weatherHourEnd, t.endHour);
+      if (startHourValue === null || endHourValue === null) {
+        return;
+      }
+
+      if (endHourValue < startHourValue) {
+        setWeatherError(t.invalidHourRange);
+        return;
+      }
+
+      hourStartParam = startHourValue;
+      hourEndParam = endHourValue;
+    } else {
+      const trimmedStart = weatherHourStart.trim();
+      if (trimmedStart !== '') {
+        const startHourValue = parseHour(trimmedStart, t.selectedHour);
+        if (startHourValue === null) {
+          return;
+        }
+        hourStartParam = startHourValue;
+        hourEndParam = startHourValue;
+      }
+    }
+
+    const selection = isIntervalMode
+      ? Array.from(new Set([weatherStartDate, ...repeatDates])).filter(Boolean).sort()
+      : [weatherStartDate].filter(Boolean);
+
+    if (selection.length === 0) {
+      setWeatherError(t.selectAtLeastOneDate);
+      return;
+    }
+
+    const rangeStart = selection[0];
+    const rangeEnd = selection[selection.length - 1];
+
+    try {
+      setWeatherLoading(true);
+
+      const placeholders = selectedLocations.map((location) => ({
+        place_id: location.place_id,
+        description: location.description,
+        geocode: null,
+        weatherData: null,
+        error: null,
+        status: 'pending',
+      }));
+
+      setMultipleWeatherResults(placeholders);
+
+      for (let i = 0; i < selectedLocations.length; i += 1) {
+        const location = selectedLocations[i];
+
+        setMultipleWeatherResults((prev) =>
+          prev.map((entry, idx) =>
+            idx === i ? { ...entry, status: 'loading', error: null } : entry
+          )
+        );
+
+        try {
+          const geocodeData = await geocodeLocation({ place_id: location.place_id });
+
+          if (!geocodeData?.latitude || !geocodeData?.longitude) {
+            setMultipleWeatherResults((prev) =>
+              prev.map((entry, idx) =>
+                idx === i
+                  ? {
+                      ...entry,
+                      geocode: null,
+                      weatherData: null,
+                      error: 'Failed to get coordinates',
+                      status: 'error',
+                    }
+                  : entry
+              )
+            );
+            continue;
+          }
+
+          const summary = await fetchWeatherSummary({
+            latitude: geocodeData.latitude,
+            longitude: geocodeData.longitude,
+            startDate: rangeStart.replace(/-/g, ''),
+            endDate: rangeEnd.replace(/-/g, ''),
+            hourStart: hourStartParam,
+            hourEnd: hourEndParam,
+          });
+
+          if (!summary) {
+            setMultipleWeatherResults((prev) =>
+              prev.map((entry, idx) =>
+                idx === i
+                  ? {
+                      ...entry,
+                      geocode: geocodeData,
+                      weatherData: null,
+                      error: 'No data returned from API',
+                      status: 'error',
+                    }
+                  : entry
+              )
+            );
+            continue;
+          }
+
+          let processedSummary = summary;
+
+          if (isIntervalMode) {
+            const selectedSet = new Set(selection);
+            const filteredData = (summary.data ?? []).filter((record) => record?.date && selectedSet.has(record.date));
+            const filteredSeries = summary.series
+              ? summary.series.filter((record) => record?.date && selectedSet.has(record.date))
+              : null;
+
+            processedSummary = {
+              ...summary,
+              data: filteredData,
+              series: filteredSeries,
+              selectedDates: selection,
+            };
+          }
+
+          setMultipleWeatherResults((prev) =>
+            prev.map((entry, idx) =>
+              idx === i
+                ? {
+                    place_id: location.place_id,
+                    description: location.description,
+                    geocode: geocodeData,
+                    weatherData: processedSummary,
+                    error: null,
+                    status: 'success',
+                  }
+                : entry
+            )
+          );
+        } catch (err) {
+          const message = err?.message || 'Failed to fetch weather data';
+          setMultipleWeatherResults((prev) =>
+            prev.map((entry, idx) =>
+              idx === i
+                ? {
+                    ...entry,
+                    geocode: null,
+                    weatherData: null,
+                    error: message,
+                    status: 'error',
+                  }
+                : entry
+            )
+          );
+        }
+      }
+
+      setWeatherEndDate(rangeEnd);
+    } catch (err) {
+      setWeatherError(err.message ?? t.couldNotRetrieveData);
+    } finally {
+      setWeatherLoading(false);
+    }
   }
 
   function openCalendar(mode = 'single') {
@@ -1543,11 +1772,40 @@ export default function App() {
               <button type="submit" className="cta" disabled={loading}>
                 {loading ? t.searching : t.findLocation}
               </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={handleAddLocation}
+                disabled={loading || (!selectedSuggestion && !selectedPlaceId && !result)}
+              >
+                {t.addLocation}
+              </button>
               <button type="button" className="ghost" onClick={handleReset} disabled={loading}>
                 {t.clear}
               </button>
             </div>
           </form>
+
+          {selectedLocations.length > 0 && (
+            <div className="selected-locations-list">
+              <h3>{t.selectedLocations}</h3>
+              <ul>
+                {selectedLocations.map((location) => (
+                  <li key={location.place_id} className="location-item">
+                    <span className="location-name">{location.description}</span>
+                    <button
+                      type="button"
+                      className="remove-location-btn"
+                      onClick={() => handleRemoveLocation(location.place_id)}
+                      title={t.removeLocation}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {error && (
             <div className="notice error" role="alert">
@@ -1605,7 +1863,10 @@ export default function App() {
             </p>
           </header>
 
-          <form className="weather-form" onSubmit={handleWeatherSubmit}>
+          <form
+            className="weather-form"
+            onSubmit={selectedLocations.length > 0 ? handleMultipleLocationsSubmit : handleWeatherSubmit}
+          >
             <fieldset className="segmented" role="radiogroup" aria-label={t.forecastMode}>
               <legend>{t.forecastMode}</legend>
               <label className={weatherMode === 'single' ? 'active' : ''}>

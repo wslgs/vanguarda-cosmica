@@ -3,17 +3,46 @@ const API_BASE = import.meta.env.VITE_API_BASE?.replace(/\/$/, '') ?? '';
 async function handleResponse(response) {
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
-  const message = detail?.detail ?? 'Unexpected API error.';
+    let message = detail?.detail ?? 'Unexpected API error.';
+
+    if (Array.isArray(message)) {
+      message = message
+        .map((entry) => {
+          if (typeof entry === 'string') {
+            return entry;
+          }
+          if (entry?.msg) {
+            return entry.msg;
+          }
+          return JSON.stringify(entry);
+        })
+        .join('; ');
+    } else if (typeof message === 'object' && message !== null) {
+      message = message.message ?? message.error ?? JSON.stringify(message);
+    }
+
     throw new Error(message);
   }
   return response.json();
 }
 
-export async function geocodeLocation(payload) {
+export async function geocodeLocation(payload = {}) {
+  const body = {};
+
+  if (payload.query) {
+    body.query = payload.query;
+  }
+
+  if (payload.place_id) {
+    body.place_id = payload.place_id;
+  } else if (payload.placeId) {
+    body.place_id = payload.placeId;
+  }
+
   const response = await fetch(`${API_BASE}/api/geocode`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
   return handleResponse(response);
 }

@@ -12,10 +12,23 @@ export const translations = {
     findLocation: 'Find location',
     clear: 'Clear',
     noSuggestions: 'No suggestions found.',
+    addLocation: 'Add location',
+    removeLocation: 'Remove',
+    selectedLocations: 'Selected locations',
+    noLocationsSelected: 'No locations selected yet.',
+    processing: 'Processing',
     
     // Empty State
-    emptyTitle: 'Ready for liftoff',
-    emptyDescription: 'Select a destination to view the interactive map and explore detailed weather forecasts.',
+    emptyTitle: 'Mission briefing: Will It Rain On My Parade?',
+    emptyDescription: 'Explore decades of NASA Earth observation data to understand how likely extreme heat, rain, wind, or discomfort could disrupt your plans months in advance.',
+    emptyStepsTitle: 'Launch checklist',
+    emptySteps: [
+      'Search any location worldwide and add it to your mission deck.',
+      'Pick the day or continuous window you care about, switching to hourly granularity whenever you need more detail.',
+      'Compare historical extremes with AI-enhanced insights, then export a PDF report to share decisions with your team.'
+    ],
+    emptyMissionTitle: 'Why this matters',
+    emptyMissionDescription: 'Built for the NASA Space Apps “Will It Rain On My Parade?” challenge, this dashboard blends NASA POWER archives with machine learning so organizers can mitigate weather risks well before traditional forecasts are available.',
     
     // Result Panel
     selectedLocation: 'Selected location',
@@ -159,10 +172,23 @@ export const translations = {
     findLocation: 'Buscar localização',
     clear: 'Limpar',
     noSuggestions: 'Nenhuma sugestão encontrada.',
+    addLocation: 'Adicionar localização',
+    removeLocation: 'Remover',
+    selectedLocations: 'Localizações selecionadas',
+    noLocationsSelected: 'Nenhuma localização selecionada ainda.',
+    processing: 'Processando',
     
     // Empty State
-    emptyTitle: 'Pronto para decolagem',
-    emptyDescription: 'Selecione um destino para visualizar o mapa interativo e explorar previsões meteorológicas detalhadas.',
+  emptyTitle: 'Briefing da missão: Will It Rain On My Parade?',
+    emptyDescription: 'Acesse décadas de observação da Terra da NASA para estimar a probabilidade de calor extremo, chuva, vento ou desconforto afetar seus planos com meses de antecedência.',
+    emptyStepsTitle: 'Checklist de lançamento',
+    emptySteps: [
+      'Pesquise qualquer localização no mundo e adicione ao seu painel de missão.',
+      'Escolha o dia ou intervalo contínuo de interesse, alternando para granularidade horária quando precisar de mais detalhe.',
+      'Compare extremos históricos com os insights de IA e exporte um relatório em PDF para compartilhar decisões com a equipe.'
+    ],
+    emptyMissionTitle: 'Por que isso importa',
+    emptyMissionDescription: 'Criado para o desafio NASA Space Apps “Will It Rain On My Parade?”, este painel combina os arquivos NASA POWER com aprendizado de máquina para que organizadores mitiguem riscos climáticos muito antes dos prognósticos tradicionais.',
     
     // Result Panel
     selectedLocation: 'Localização selecionada',
