@@ -85,6 +85,10 @@ class WeatherRecord(BaseModel):
     ws10m: Optional[float] = None
     precip_mm: Optional[float] = None
     flags: WeatherFlags
+    accuracy: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Accuracy scores (percentage) for each metric when AI prediction is used."
+    )
 
 
 class WeatherMeta(BaseModel):
@@ -103,6 +107,10 @@ class WeatherSummaryResponse(BaseModel):
     series: Optional[list[WeatherRecord]] = Field(
         default=None,
         description="Detailed series with each requested hour when an interval is provided.",
+    )
+    ai_prediction: Optional[Dict[str, object]] = Field(
+        default=None,
+        description="AI model information when prediction is used, including execution_time."
     )
 
 

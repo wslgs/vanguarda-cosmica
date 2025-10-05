@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import jsPDF from 'jspdf';
 
 import {
   Chart as ChartJS,
@@ -97,58 +98,225 @@ function createSessionToken() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function describeTemperatureLevel(value, heatFlag = false) {
+function generatePDF(weatherResult, geocodeResult, t) {
+  try {
+    console.log('Generating PDF...', { weatherResult, geocodeResult });
+    
+    const doc = new jsPDF();
+    
+    // Colors
+    const primaryColor = [169, 107, 255]; // Purple
+    const textColor = [40, 40, 60];
+    const lightGray = [200, 200, 210];
+    
+    let yPos = 20;
+    
+    // Header with gradient effect
+    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.rect(0, 0, 210, 40, 'F');
+    
+    // Title
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(24);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Weather Forecast Report', 105, 20, { align: 'center' });
+    
+    // Location
+    if (geocodeResult?.formatted_address) {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      doc.text(geocodeResult.formatted_address, 105, 30, { align: 'center' });
+    }
+    
+    yPos = 50;
+    
+    // Coordinates
+    doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Coordinates: ${geocodeResult?.latitude?.toFixed(4)}, ${geocodeResult?.longitude?.toFixed(4)}`, 20, yPos);
+    yPos += 7;
+    
+    // Date generated
+    const now = new Date();
+    doc.text(`Generated: ${now.toLocaleString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })}`, 20, yPos);
+    yPos += 10;
+    
+    // AI Badge if applicable
+    if (weatherResult.ai_prediction) {
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(9);
+      doc.roundedRect(20, yPos - 4, 60, 7, 2, 2, 'F');
+      const executionTime = weatherResult.ai_prediction.execution_time 
+        ? ` (${weatherResult.ai_prediction.execution_time}s)` 
+        : '';
+      doc.text(`AI-generated prediction${executionTime}`, 22, yPos);
+      yPos += 12;
+      doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+    } else {
+      yPos += 5;
+    }
+    
+    // Divider line
+    doc.setDrawColor(lightGray[0], lightGray[1], lightGray[2]);
+    doc.setLineWidth(0.5);
+    doc.line(20, yPos, 190, yPos);
+    yPos += 10;
+    
+    // Weather Data
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Weather Metrics', 20, yPos);
+    yPos += 8;
+    
+    // Table header
+    doc.setFillColor(245, 245, 250);
+    doc.rect(20, yPos - 5, 170, 8, 'F');
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Date/Time', 22, yPos);
+    doc.text('Temperature', 70, yPos);
+    doc.text('Wind', 115, yPos);
+    doc.text('Precipitation', 145, yPos);
+    yPos += 10;
+    
+    // Data rows
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    
+    const dataToShow = weatherResult.data || [];
+    dataToShow.forEach((entry, index) => {
+      if (yPos > 270) {
+        doc.addPage();
+        yPos = 20;
+      }
+      
+      // Alternate row background
+      if (index % 2 === 0) {
+        doc.setFillColor(250, 250, 252);
+        doc.rect(20, yPos - 5, 170, 8, 'F');
+      }
+      
+      // Date/Time
+      const dateStr = entry.date || '-';
+      const timeStr = entry.hour !== null && entry.hour !== undefined 
+        ? ` ${String(entry.hour).padStart(2, '0')}:00`
+        : '';
+      doc.text(`${dateStr}${timeStr}`, 22, yPos);
+      
+      // Temperature
+      const temp = entry.t2m !== null ? `${entry.t2m.toFixed(1)}°C` : '-';
+      const tempMax = weatherResult.granularity === 'daily' && entry.t2m_max !== null 
+        ? ` (H:${entry.t2m_max.toFixed(1)}°` 
+        : '';
+      const tempMin = weatherResult.granularity === 'daily' && entry.t2m_min !== null 
+        ? ` L:${entry.t2m_min.toFixed(1)}°)` 
+        : '';
+      doc.text(`${temp}${tempMax}${tempMin}`, 70, yPos);
+      
+      // Wind
+      const wind = entry.ws10m !== null ? `${entry.ws10m.toFixed(1)} m/s` : '-';
+      doc.text(wind, 115, yPos);
+      
+      // Precipitation
+      const precip = entry.precip_mm !== null ? `${entry.precip_mm.toFixed(1)} mm` : '-';
+      doc.text(precip, 145, yPos);
+      
+      yPos += 8;
+      
+      // Accuracy (if AI prediction)
+      if (entry.accuracy) {
+        doc.setFontSize(7);
+        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        
+        const accT2M = entry.accuracy.T2M ? `T:${entry.accuracy.T2M.toFixed(0)}%` : '';
+        const accWS = entry.accuracy.WS10M ? `W:${entry.accuracy.WS10M.toFixed(0)}%` : '';
+        const accPR = entry.accuracy.PRECTOTCORR ? `P:${entry.accuracy.PRECTOTCORR.toFixed(0)}%` : '';
+        
+        doc.text(`Accuracy: ${accT2M} ${accWS} ${accPR}`, 22, yPos);
+        doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+        doc.setFontSize(9);
+        yPos += 6;
+      }
+    });
+    
+    // Footer
+    yPos = 285;
+    doc.setFontSize(8);
+    doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
+    doc.text('Generated by Vanguarda Cósmica Weather System', 105, yPos, { align: 'center' });
+    doc.text(`Data source: ${weatherResult.ai_prediction ? 'AI Prediction' : 'NASA POWER'}`, 105, yPos + 4, { align: 'center' });
+    
+    // Save
+    const filename = `weather-forecast-${now.toISOString().split('T')[0]}.pdf`;
+    doc.save(filename);
+    
+    console.log('PDF generated successfully:', filename);
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    alert(t.pdfError);
+  }
+}
+
+function describeTemperatureLevel(value, heatFlag = false, t) {
   if (value === null || value === undefined) {
     return null;
   }
   if (heatFlag || value >= 34) {
-    return { tone: 'alert', icon: '🔥', text: 'Extreme heat ahead—prioritize shade and hydration.' };
+    return { tone: 'alert', icon: '🔥', text: t.extremeHeat };
   }
   if (value >= 28) {
-    return { tone: 'warning', icon: '🌡️', text: 'High temperatures expected—schedule cooling breaks.' };
+    return { tone: 'warning', icon: '🌡️', text: t.highTemp };
   }
   if (value <= 15) {
-    return { tone: 'info', icon: '🧥', text: 'Cool conditions—consider an extra layer.' };
+    return { tone: 'info', icon: '🧥', text: t.coolTemp };
   }
-  return { tone: 'good', icon: '🌤️', text: 'Comfortable temperatures for outdoor plans.' };
+  return { tone: 'good', icon: '🌤️', text: t.comfortableTemp };
 }
 
-function describeWindLevel(value, windFlag = false) {
+function describeWindLevel(value, windFlag = false, t) {
   if (value === null || value === undefined) {
     return null;
   }
   if (windFlag || value >= 9) {
-    return { tone: 'alert', icon: '💨', text: 'Strong gusts—secure loose items and stay alert.' };
+    return { tone: 'alert', icon: '💨', text: t.strongWind };
   }
   if (value >= 6) {
-    return { tone: 'warning', icon: '🍃', text: 'Steady moderate wind may disrupt outdoor plans.' };
+    return { tone: 'warning', icon: '🍃', text: t.moderateWind };
   }
   if (value <= 1.5) {
-    return { tone: 'good', icon: '🍃', text: 'Barely any wind, stable feels-like conditions.' };
+    return { tone: 'good', icon: '🍃', text: t.calmWind };
   }
-  return { tone: 'info', icon: '🍃', text: 'Light breeze adding to thermal comfort.' };
+  return { tone: 'info', icon: '🍃', text: t.lightBreeze };
 }
 
-function describePrecipitationLevel(value, rainFlag = false) {
+function describePrecipitationLevel(value, rainFlag = false, t) {
   if (value === null || value === undefined) {
     return null;
   }
   if (rainFlag || value >= 5) {
-    return { tone: 'alert', icon: '🌧️', text: 'Significant rain likely—plan shelter or rain gear.' };
+    return { tone: 'alert', icon: '🌧️', text: t.heavyRain };
   }
   if (value >= 2) {
-    return { tone: 'warning', icon: '☔', text: 'Light rain or drizzle possible—carry an umbrella.' };
+    return { tone: 'warning', icon: '☔', text: t.lightRain };
   }
   if (value > 0) {
-    return { tone: 'info', icon: '☂️', text: 'Small chance of brief drizzle—keep an eye on the sky.' };
+    return { tone: 'info', icon: '☂️', text: t.briefDrizzle };
   }
-  return { tone: 'good', icon: '☀️', text: 'No rain expected for this period.' };
+  return { tone: 'good', icon: '☀️', text: t.noRain };
 }
 
-function buildChartInsight(values, type, formatter) {
+function buildChartInsight(values, type, formatter, t) {
   const numeric = (values ?? []).filter((value) => value !== null && value !== undefined);
   if (numeric.length === 0) {
-    return 'Not enough data for the selected window.';
+    return t.notEnoughData;
   }
 
   const min = Math.min(...numeric);
@@ -157,35 +325,35 @@ function buildChartInsight(values, type, formatter) {
 
   if (type === 'temperature') {
     if (max >= 34) {
-      return `Sharp heat spikes (${formatter.format(max)}°C)—avoid peak exposure hours.`;
+      return t.sharpHeatSpikes.replace('{max}', formatter.format(max));
     }
     if (max >= 28) {
-      return `High temperatures, averaging ${formatter.format(avg)}°C across the period.`;
+      return t.highTempAverage.replace('{avg}', formatter.format(avg));
     }
-    return `Temperatures stay between ${formatter.format(min)}°C and ${formatter.format(max)}°C.`;
+    return t.tempRange.replace('{min}', formatter.format(min)).replace('{max}', formatter.format(max));
   }
 
   if (type === 'wind') {
     if (max >= 9) {
-      return `Wind peaks at ${formatter.format(max)} m/s—watch for gusts.`;
+      return t.windPeaks.replace('{max}', formatter.format(max));
     }
     if (max >= 6) {
-      return `Moderate wind dominates (average ${formatter.format(avg)} m/s).`;
+      return t.moderateWindAvg.replace('{avg}', formatter.format(avg));
     }
-    return `Gentle wind stays below ${formatter.format(max)} m/s.`;
+    return t.gentleWind.replace('{max}', formatter.format(max));
   }
 
   const total = numeric.reduce((sum, value) => sum + value, 0);
   if (max >= 5) {
-    return `Heavy rain with peaks of ${formatter.format(max)} mm/h—plan for cover.`;
+    return t.heavyRainPeaks.replace('{max}', formatter.format(max));
   }
   if (max >= 2) {
-    return `Light rain fluctuations (average ${formatter.format(avg)} mm/h).`;
+    return t.lightRainFluc.replace('{avg}', formatter.format(avg));
   }
   if (total === 0) {
-    return 'Dry window with no recorded precipitation.';
+    return t.dryWindow;
   }
-  return `Occasional drizzle adds up to ${formatter.format(total)} mm across the window.`;
+  return t.occasionalDrizzle.replace('{total}', formatter.format(total));
 }
 
 export default function App() {
@@ -287,7 +455,7 @@ export default function App() {
   }, [weatherResult]);
 
   const hasIntervalSeries = Boolean(intervalSeries?.length);
-
+  
   const intervalSeriesByDate = useMemo(() => {
     if (!intervalSeries) {
       return null;
@@ -824,6 +992,7 @@ export default function App() {
     } catch (err) {
   setWeatherResult(null);
   setWeatherError(err.message ?? 'We couldn’t retrieve the weather data.');
+  setIsUsingAI(false);
     } finally {
       setWeatherLoading(false);
     }
@@ -857,9 +1026,11 @@ export default function App() {
         ? {
             tone: 'alert',
             icon: '🔥',
-            text: `${heatCount} ${heatCount === 1 ? 'slot' : 'slots'} of intense heat—plan shaded breaks.`,
+            text: t.intenseHeat
+              .replace('{count}', heatCount)
+              .replace('{unit}', heatCount === 1 ? t.slot : t.slots),
           }
-        : { tone: 'good', icon: '🌤️', text: 'Temperatures stay within a comfortable range most of the time.' }
+        : { tone: 'good', icon: '🌤️', text: t.comfortableRange }
     );
 
     messages.push(
@@ -867,9 +1038,11 @@ export default function App() {
         ? {
             tone: 'warning',
             icon: '☔',
-            text: `Rain appears in ${rainCount} ${rainCount === 1 ? 'entry' : 'entries'}—pack a raincoat or umbrella.`,
+            text: t.rainWarning
+              .replace('{count}', rainCount)
+              .replace('{unit}', rainCount === 1 ? t.entry : t.entries),
           }
-        : { tone: 'good', icon: '☀️', text: 'No meaningful rain signals throughout the analyzed period.' }
+        : { tone: 'good', icon: '☀️', text: t.noMeaningfulRain }
     );
 
     messages.push(
@@ -877,13 +1050,15 @@ export default function App() {
         ? {
             tone: 'warning',
             icon: '💨',
-            text: `Gusty conditions in ${windCount} ${windCount === 1 ? 'slot' : 'slots'}—exercise extra caution outdoors.`,
+            text: t.gustyConditions
+              .replace('{count}', windCount)
+              .replace('{unit}', windCount === 1 ? t.slot : t.slots),
           }
-        : { tone: 'info', icon: '🍃', text: 'Calm winds dominate, keeping the feels-like temperature steady.' }
+        : { tone: 'info', icon: '🍃', text: t.calmWinds }
     );
 
     return messages;
-  }, [weatherResult]);
+  }, [weatherResult, t]);
 
   const requestedRangeLabel = useMemo(() => {
     if (!weatherResult) {
@@ -989,11 +1164,11 @@ export default function App() {
       return null;
     }
     return {
-      temperature: buildChartInsight(intervalChartData.datasets.temperature, 'temperature', NUMBER_FORMATTER),
-      wind: buildChartInsight(intervalChartData.datasets.wind, 'wind', NUMBER_FORMATTER),
-      precipitation: buildChartInsight(intervalChartData.datasets.precipitation, 'precipitation', NUMBER_FORMATTER),
+      temperature: buildChartInsight(intervalChartData.datasets.temperature, 'temperature', NUMBER_FORMATTER, t),
+      wind: buildChartInsight(intervalChartData.datasets.wind, 'wind', NUMBER_FORMATTER, t),
+      precipitation: buildChartInsight(intervalChartData.datasets.precipitation, 'precipitation', NUMBER_FORMATTER, t),
     };
-  }, [intervalChartData, NUMBER_FORMATTER]);
+  }, [intervalChartData, NUMBER_FORMATTER, t]);
 
   function handleSuggestionSelect(suggestion) {
     setQuery(suggestion.description);
@@ -1337,7 +1512,7 @@ export default function App() {
                   autoComplete="off"
                   required={!selectedPlaceId}
                 />
-                {autocompleteLoading && <span className="autocomplete-status">{t.searching}</span>}
+                {autocompleteLoading && <span className="autocomplete-status loading-dots">{t.searching}</span>}
                 {suggestionsVisible && suggestions.length > 0 && (
                   <ul className="autocomplete-list" role="listbox">
                     {suggestions.map((suggestion) => (
@@ -1572,8 +1747,14 @@ export default function App() {
               </div>
             )}
 
-            <button type="submit" className="cta" disabled={weatherLoading || !weatherStartDate}>
-              {weatherLoading ? t.loading : t.loadWeather}
+            <button 
+              type="submit" 
+              className={weatherLoading ? "cta ai-loading" : "cta"} 
+              disabled={weatherLoading || !weatherStartDate}
+            >
+              <span className={weatherLoading ? "loading-dots" : ""}>
+                {weatherLoading ? t.generatingPrediction : t.loadWeather}
+              </span>
             </button>
           </form>
 
@@ -1585,9 +1766,66 @@ export default function App() {
 
           {weatherResult && (
             <div className={hasIntervalSeries ? 'weather-outcome interval' : 'weather-outcome'}>
+              
               <header className="weather-summary-header">
+                <div className="weather-header-badges">
+                  {weatherResult.ai_prediction && (
+                    <div className="ai-source-badge">
+                      <div className="ai-badge-main">
+                        {t.aiGeneratedPrediction}
+                        {weatherResult.ai_prediction.execution_time && (
+                          <span className="ai-execution-time">
+                            ({weatherResult.ai_prediction.execution_time}s)
+                          </span>
+                        )}
+                      </div>
+                      {(() => {
+                        const chosen = weatherResult.ai_prediction.chosen || {};
+                        const modelCounts = {};
+                        
+                        // Count which model was chosen most
+                        Object.values(chosen).forEach(info => {
+                          const model = info.best_model;
+                          if (model) {
+                            modelCounts[model] = (modelCounts[model] || 0) + 1;
+                          }
+                        });
+                        
+                        // Find the most used model
+                        let bestModel = 'Mixed';
+                        let maxCount = 0;
+                        Object.entries(modelCounts).forEach(([model, count]) => {
+                          if (count > maxCount) {
+                            maxCount = count;
+                            bestModel = model;
+                          }
+                        });
+                        
+                        // If all models are used equally, show "Mixed"
+                        if (Object.keys(modelCounts).length > 1 && maxCount <= 2) {
+                          bestModel = 'Mixed Models';
+                        }
+                        
+                        const yearsBack = weatherResult.ai_prediction.input?.years_back || 6;
+                        const totalDays = yearsBack * 365;
+                        
+                        return (
+                          <div className="ai-badge-details">
+                            <span className="ai-detail-item">
+                              <span className="ai-detail-label">{t.model}:</span> {bestModel}
+                            </span>
+                            <span className="ai-detail-separator">•</span>
+                            <span className="ai-detail-item">
+                              <span className="ai-detail-label">{t.trainingData}:</span> ~{totalDays.toLocaleString()} {t.days}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
                 {weatherResult.granularity !== 'hourly' && requestedRangeLabel && (
-                  <p className="weather-meta">Period: {requestedRangeLabel}</p>
+                  <p className="weather-meta">{t.period}: {requestedRangeLabel}</p>
                 )}
               </header>
 
@@ -1631,7 +1869,7 @@ export default function App() {
                 </div>
               )}
 
-              {!hasIntervalSeries && (
+              {!hasIntervalSeries && weatherResult.data && weatherResult.data.length > 0 && (
                 <div className="weather-grid">
                   {weatherResult.data.map((entry) => {
                     const hasHourlyData = weatherResult.granularity === 'hourly';
@@ -1673,28 +1911,53 @@ export default function App() {
 
                         <dl className="weather-day__metrics">
                           <div className="weather-day__metric">
-                            <dt>Temperature</dt>
-                            <dd>{formatMetric(entry.t2m, weatherUnits.T2M ?? '°C')}</dd>
+                            <dt>{t.temperature}</dt>
+                            <dd>
+                              {formatMetric(entry.t2m, weatherUnits.T2M ?? '°C')}
+                              {entry.accuracy?.T2M && (
+                                <span className="accuracy-badge">{entry.accuracy.T2M.toFixed(1)}% {t.accuracy}</span>
+                              )}
+                            </dd>
                           </div>
                           {weatherResult.granularity === 'daily' && (
                             <>
                               <div className="weather-day__metric">
-                                <dt>High</dt>
-                                <dd>{formatMetric(entry.t2m_max, weatherUnits.T2M ?? '°C')}</dd>
+                                <dt>{t.high}</dt>
+                                <dd>
+                                  {formatMetric(entry.t2m_max, weatherUnits.T2M ?? '°C')}
+                                  {entry.accuracy?.T2M_MAX && (
+                                    <span className="accuracy-badge">{entry.accuracy.T2M_MAX.toFixed(1)}% {t.accuracy}</span>
+                                  )}
+                                </dd>
                               </div>
                               <div className="weather-day__metric">
-                                <dt>Low</dt>
-                                <dd>{formatMetric(entry.t2m_min, weatherUnits.T2M ?? '°C')}</dd>
+                                <dt>{t.low}</dt>
+                                <dd>
+                                  {formatMetric(entry.t2m_min, weatherUnits.T2M ?? '°C')}
+                                  {entry.accuracy?.T2M_MIN && (
+                                    <span className="accuracy-badge">{entry.accuracy.T2M_MIN.toFixed(1)}% {t.accuracy}</span>
+                                  )}
+                                </dd>
                               </div>
                             </>
                           )}
                           <div className="weather-day__metric">
-                            <dt>10 m wind</dt>
-                            <dd>{formatMetric(entry.ws10m, weatherUnits.WS10M ?? 'm/s')}</dd>
+                            <dt>{t.wind10m}</dt>
+                            <dd>
+                              {formatMetric(entry.ws10m, weatherUnits.WS10M ?? 'm/s')}
+                              {entry.accuracy?.WS10M && (
+                                <span className="accuracy-badge">{entry.accuracy.WS10M.toFixed(1)}% {t.accuracy}</span>
+                              )}
+                            </dd>
                           </div>
                           <div className="weather-day__metric">
-                            <dt>Precipitation</dt>
-                            <dd>{formatMetric(entry.precip_mm, weatherUnits.PRECTOTCORR ?? weatherUnits.PRECTOT ?? 'mm')}</dd>
+                            <dt>{t.precipitation}</dt>
+                            <dd>
+                              {formatMetric(entry.precip_mm, weatherUnits.PRECTOTCORR ?? weatherUnits.PRECTOT ?? 'mm')}
+                              {entry.accuracy?.PRECTOTCORR && (
+                                <span className="accuracy-badge">{entry.accuracy.PRECTOTCORR.toFixed(1)}% {t.accuracy}</span>
+                              )}
+                            </dd>
                           </div>
                         </dl>
                       </article>
@@ -1706,13 +1969,13 @@ export default function App() {
               {hasIntervalSeries && intervalChartData && (
                 <div className="weather-chart-card">
                   <header>
-                    <h4>Variation across the selected range</h4>
+                    <h4>{t.variationAcrossRange}</h4>
                     <p>
-                      Explore how temperature, wind, and precipitation evolve hour by hour.
+                      {t.exploreEvolution}
                       {selectedIntervalDateLabel && (
                         <>
                           {' '}
-                          <span className="chart-day-label">Selected day: {selectedIntervalDateLabel}</span>
+                          <span className="chart-day-label">{t.selectedDay}: {selectedIntervalDateLabel}</span>
                         </>
                       )}
                     </p>
@@ -1720,7 +1983,7 @@ export default function App() {
                   <div className="chart-grid">
                     {temperatureChartData && temperatureChartOptions && (
                       <article className="chart-panel" aria-label="Hourly temperature chart">
-                        <h5>Temperature</h5>
+                        <h5>{t.temperature}</h5>
                         <p className="chart-insight">{chartInsights?.temperature}</p>
                         <div className="chart-canvas">
                           <Line key={`temperature-${selectedIntervalDate ?? 'none'}`} options={temperatureChartOptions} data={temperatureChartData} />
@@ -1729,7 +1992,7 @@ export default function App() {
                     )}
                     {windChartData && windChartOptions && (
                       <article className="chart-panel" aria-label="Hourly wind chart">
-                        <h5>Wind</h5>
+                        <h5>{t.wind}</h5>
                         <p className="chart-insight">{chartInsights?.wind}</p>
                         <div className="chart-canvas">
                           <Line key={`wind-${selectedIntervalDate ?? 'none'}`} options={windChartOptions} data={windChartData} />
@@ -1738,7 +2001,7 @@ export default function App() {
                     )}
                     {precipitationChartData && precipitationChartOptions && (
                       <article className="chart-panel" aria-label="Hourly precipitation chart">
-                        <h5>Precipitation</h5>
+                        <h5>{t.precipitation}</h5>
                         <p className="chart-insight">{chartInsights?.precipitation}</p>
                         <div className="chart-canvas">
                           <Bar key={`precipitation-${selectedIntervalDate ?? 'none'}`} options={precipitationChartOptions} data={precipitationChartData} />
@@ -1748,6 +2011,23 @@ export default function App() {
                   </div>
                 </div>
               )}
+              
+              {/* Download PDF Button - Centered at bottom */}
+              <div className="pdf-download-section">
+                <button 
+                  type="button"
+                  className="download-pdf-btn"
+                  onClick={() => generatePDF(weatherResult, geocodeResult, t)}
+                  title={t.downloadPdfReport}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  {t.downloadPdfReport}
+                </button>
+              </div>
             </div>
           )}
         </section>

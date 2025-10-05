@@ -1,36 +1,88 @@
-# Rain – Localizador de Coordenadas
+# Vanguarda Cósmica – Weather Intelligence
 
-Aplicativo full-stack minimalista: o usuário informa o **local** (ex.: ponto turístico, estabelecimento, rua) e recebe as coordenadas de latitude e longitude correspondentes com sugestões automáticas do Google Places, além de um mapa pronto para abrir.
+Aplicativo full-stack com **previsão meteorológica inteligente**: o usuário informa um **local** e recebe dados climáticos da NASA POWER. Quando dados não estão disponíveis (datas recentes/futuras), o sistema utiliza **Machine Learning** para gerar previsões com 3 modelos de IA (SARIMAX, Gradient Boosting, Random Forest).
 
-## Arquitetura
+## 🌟 Funcionalidades
 
-- **Backend (`/backend`)**: FastAPI + Google Maps Geocoding API.
-- **Frontend (`/frontend`)**: React + Vite com formulário de busca única e mapa embutido.
-- **Comunicação**:
-	- `POST /api/geocode` com payload `{ query }` retornando `{ latitude, longitude, formatted_address, place_id, google_maps_url }`.
-	- `GET /api/place-autocomplete?input=<texto>[&session_token=<uuid>]` devolve sugestões (Google Places) para preencher o campo de busca do frontend.
-	- `GET /api/weather-summary?lat=<float>&lon=<float>&date=<YYYYMMDD>[&hour_start=<0-23>[&hour_end=<0-23>]]` retorna dados climáticos NASA POWER em modo diário (padrão) ou horária/intervalo quando `hour_start` (e opcionalmente `hour_end`) são informados.
+- 🗺️ **Busca de Localização**: Google Places autocomplete + geocoding
+- 🌤️ **Dados Meteorológicos**: NASA POWER API (temperatura, vento, precipitação)
+- 🤖 **Previsão com IA**: ML models treinados com 6 anos de dados históricos
+- 📊 **Acurácia Visível**: Cada métrica de IA mostra sua porcentagem de confiança
+- 🌐 **Bilíngue**: Suporte completo PT-BR e EN
+- 📈 **Visualização**: Gráficos interativos para dados horários
 
-## Pré-requisitos
+## 🏗️ Arquitetura
 
-- Python 3.11+
-- Node.js 18+
-- npm (ou pnpm/yarn adaptando comandos)
-- Chave de API do Google Maps com acesso ao **Geocoding API** e (opcionalmente) **Maps Embed API**
+- **Backend (`/backend`)**: FastAPI + NASA POWER + scikit-learn + statsmodels
+- **Frontend (`/frontend`)**: React + Vite + Chart.js
+- **IA**: 3 modelos ensemble (auto-seleção por RMSE)
+
+### Endpoints da API
+
+- `POST /api/geocode` → Converte local em coordenadas
+- `GET /api/place-autocomplete` → Sugestões de localização
+- `GET /api/weather-summary` → Dados climáticos (usa IA automaticamente quando necessário)
+
+## 🤖 Sistema de IA
+
+Quando a NASA POWER não tem dados disponíveis (valores -999 ou erro), o sistema:
+
+1. **Busca 6 anos** de dados históricos da mesma localização
+2. **Treina 3 modelos** para cada variável:
+   - SARIMAX (séries temporais com sazonalidade)
+   - Gradient Boosting (ensemble tree-based)
+   - Random Forest (ensemble robusto)
+3. **Seleciona automaticamente** o modelo com menor RMSE
+4. **Calcula acurácia** baseada no RMSE de validação
+5. **Retorna previsão** com indicador de confiança
+
+### Acurácia Exibida
+
+```json
+{
+  "accuracy": {
+    "T2M": 99.2,      // 99.2% de acurácia
+    "T2M_MAX": 98.3,  // 98.3% de acurácia
+    "WS10M": 96.9,    // 96.9% de acurácia
+    "PRECTOTCORR": 84.3  // 84.3% de acurácia
+  }
+}
+```
+
+A acurácia aparece como badge roxo junto a cada métrica no frontend.
+
+## 📦 Dependências Backend
+
+```txt
+fastapi
+uvicorn[standard]
+httpx
+pydantic
+pandas
+numpy
+scikit-learn
+statsmodels
+```
+
+## 📦 Dependências Frontend
+
+```txt
+react
+chart.js
+react-chartjs-2
+```
 
 ## Como rodar o backend
 
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 export GOOGLE_MAPS_API_KEY="sua-chave-google"
 uvicorn app.main:app --reload --port 8000
 ```
-
-> O parâmetro `GEOCODER_TIMEOUT` (padrão 5s) controla o tempo máximo de resposta do Google.
 
 ## Como rodar o frontend
 
@@ -38,22 +90,47 @@ uvicorn app.main:app --reload --port 8000
 cd frontend
 npm install
 echo "VITE_GOOGLE_MAPS_API_KEY=sua-chave-google" > .env.local
+echo "VITE_API_BASE=http://localhost:8000" >> .env.local
 npm run dev
 ```
 
-O Vite abre em `http://localhost:5173` e encaminha `/api/geocode` para `http://localhost:8000` durante o desenvolvimento.
+Acesse: `http://localhost:5173`
 
-> Se preferir manter a chave apenas no backend, remova a linha acima. O frontend usará um `iframe` de fallback sem autenticação (com menos recursos), mas o link "Abrir no Google Maps" continuará funcionando.
+## 🧪 Testando a Previsão com IA
 
-### Repetição de dias no modo intervalo
+```bash
+# Testar para data sem dados disponíveis (usa IA)
+curl "http://localhost:8000/api/weather-summary?lat=-7.12&lon=-34.88&start_date=20251004&end_date=20251004"
+```
 
-- Escolha **Intervalo contínuo** para definir uma data inicial e duas horas (início/fim) do dia.
-- Pressione o botão **Repete** para abrir o seletor de datas e marque quantos dias adicionais quiser repetir; a data inicial é sempre incluída.
-- Após confirmar, o painel de gráficos exibe um seletor apenas com as datas escolhidas, cada uma respeitando o intervalo horário informado.
+Resposta incluirá:
+- ✅ `data[0].accuracy` - Porcentagens de acurácia por variável
+- ✅ `ai_prediction.chosen` - Melhor modelo selecionado para cada métrica
+- ✅ `meta.source` - "AI Prediction"
+
+## 🎨 Interface do Usuário
+
+### Feedback de Carregamento Progressivo
+
+Quando consulta demora (IA processando):
+
+1. **Fase 0** (0-1.5s): "Pesquisando dados..."
+2. **Fase 1** (1.5-4s): "Analisando padrões..." + animação ativa
+3. **Fase 2** (4-7s): "Gerando previsão..."
+4. **Fase 3** (7s+): "Finalizando resultados..."
+
+### Cards de Dados com Acurácia
+
+Quando IA é usada, cada métrica mostra:
+
+```
+🌡️ Temperatura: 25.4°C
+   [96.9% accuracy] ← Badge roxo
+```
 
 ## Consulta de clima (NASA POWER)
 
-Com a API rodando, é possível consultar o resumo climático diário fornecendo latitude, longitude e a data no formato `YYYYMMDD` (a resposta é em **tempo solar local**):
+Endpoint unificado que usa automaticamente IA quando necessário:
 
 ```bash
 curl "http://localhost:8000/api/weather-summary?lat=-7.12&lon=-34.86&date=20251004"

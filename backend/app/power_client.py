@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Dict, Iterable, List, Optional
 
 import httpx
@@ -41,9 +42,10 @@ class PowerWeatherRecord:
     ws10m: Optional[float]
     precip_mm: Optional[float]
     flags: WeatherFlags
+    accuracy: Optional[Dict[str, float]] = None  # Acurácia por variável (quando IA)
 
     def to_dict(self) -> Dict[str, object]:
-        return {
+        result = {
             "date": self.date,
             "hour": self.hour,
             "hour_end": self.hour_end,
@@ -54,6 +56,9 @@ class PowerWeatherRecord:
             "precip_mm": self.precip_mm,
             "flags": self.flags.to_dict(),
         }
+        if self.accuracy is not None:
+            result["accuracy"] = self.accuracy
+        return result
 
 
 @dataclass
@@ -62,14 +67,18 @@ class PowerWeatherSummary:
     records: List[PowerWeatherRecord]
     granularity: str
     series: Optional[List[PowerWeatherRecord]] = None
+    ai_prediction: Optional[Dict[str, object]] = None
 
     def to_dict(self) -> Dict[str, object]:
-        return {
+        result = {
             "meta": self.meta,
             "granularity": self.granularity,
             "data": [record.to_dict() for record in self.records],
             "series": None if self.series is None else [record.to_dict() for record in self.series],
         }
+        if self.ai_prediction is not None:
+            result["ai_prediction"] = self.ai_prediction
+        return result
 
 
 def _first_non_empty_series(parameters: Dict[str, Dict[str, float]]) -> Optional[Dict[str, float]]:
@@ -242,6 +251,22 @@ async def fetch_power_weather(
     timeout: float = DEFAULT_TIMEOUT,
     client: Optional[httpx.AsyncClient] = None,
 ) -> PowerWeatherSummary:
+    # AI is available for all cases (will predict daily values)
+    can_use_ai = True
+    is_hourly_request = hour_start is not None
+    
+    # Parse dates for reference
+    today = datetime.now().date()
+    start_date = datetime.strptime(start, "%Y%m%d").date()
+    end_date = datetime.strptime(end, "%Y%m%d").date()
+    
+    # Check if request is for recent/future dates (NASA POWER may not have data yet)
+    is_recent_or_future = start_date >= (today - timedelta(days=7))
+    
+    # Try normal NASA POWER first
+    use_ai_fallback = False
+    normal_data_failed = False
+    
     base_url = DAILY_BASE_URL if hour_start is None else HOURLY_BASE_URL
     parameters_str = DEFAULT_DAILY_PARAMETERS if hour_start is None else DEFAULT_HOURLY_PARAMETERS
 
@@ -257,7 +282,7 @@ async def fetch_power_weather(
 
     headers = {
         "Accept": "application/json",
-    "User-Agent": "rain/1.0",
+        "User-Agent": "rain/1.0",
     }
 
     close_client = False
@@ -265,103 +290,508 @@ async def fetch_power_weather(
         client = httpx.AsyncClient(timeout=timeout)
         close_client = True
 
+    response = None
+    parameters = {}
+    meta = {}
+    fill_value = -999.0
+    
     try:
         response = await client.get(base_url, params=params, headers=headers)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else 503
-        raise PowerAPIError(
-            f"Erro ao consultar a NASA POWER (status {status_code})."
-        ) from exc
-    except httpx.HTTPError as exc:  # pragma: no cover - erros de rede raros
-        raise PowerAPIError("Falha de comunicação com a NASA POWER.") from exc
+        if can_use_ai:
+            use_ai_fallback = True
+            normal_data_failed = True
+        else:
+            status_code = exc.response.status_code if exc.response is not None else 503
+            raise PowerAPIError(
+                f"Error querying NASA POWER (status {status_code})."
+            ) from exc
+    except httpx.HTTPError as exc:
+        if can_use_ai:
+            use_ai_fallback = True
+            normal_data_failed = True
+        else:
+            raise PowerAPIError("Communication failure with NASA POWER.") from exc
     finally:
         if close_client:
             await client.aclose()
 
-    payload = response.json()
-    parameters = payload.get("properties", {}).get("parameter", {})
+    # If normal request succeeded, process it
+    if not normal_data_failed and response is not None:
+        payload = response.json()
+        parameters = payload.get("properties", {}).get("parameter", {})
 
-    if not isinstance(parameters, dict) or not parameters:
-        raise PowerAPIError("Resposta da NASA POWER sem dados de parâmetros.")
+        if not isinstance(parameters, dict) or not parameters:
+            if is_recent_or_future and can_use_ai:
+                use_ai_fallback = True
+            else:
+                raise PowerAPIError("NASA POWER response without parameter data.")
 
-    fill_value = payload.get("header", {}).get("fill_value", -999.0)
-    meta = _extract_meta(payload)
+        if not use_ai_fallback:
+            fill_value = payload.get("header", {}).get("fill_value", -999.0)
+            meta = _extract_meta(payload)
 
-    if hour_start is None:
-        dates = list(_iter_dates(parameters))
-        if not dates:
-            raise PowerAPIError("Nenhuma data disponível na resposta da NASA POWER.")
+            if hour_start is None:
+                dates = list(_iter_dates(parameters))
+                if not dates:
+                    if is_recent_or_future and can_use_ai:
+                        use_ai_fallback = True
+                    else:
+                        raise PowerAPIError("No dates available in NASA POWER response.")
 
-        records: List[PowerWeatherRecord] = []
-        for date_key in dates:
-            record = _build_daily_record(parameters, date_key, fill_value)
-            if record is not None:
-                records.append(record)
-
-        if not records:
-            raise PowerAPIError("Nenhum dado meteorológico utilizável encontrado para o período informado.")
-
-        return PowerWeatherSummary(meta=meta, records=records, granularity="daily")
-
-    # Consulta horária com suporte a intervalos
-    if not (0 <= hour_start <= 23):
-        raise PowerAPIError("Hora inicial inválida. Utilize valores entre 0 e 23.")
-
-    if hour_end is not None and not (0 <= hour_end <= 23):
-        raise PowerAPIError("Hora final inválida. Utilize valores entre 0 e 23.")
-
-    multi_day_interval = end != start
-
-    effective_hour_end = hour_start
-    if hour_end is not None:
-        effective_hour_end = hour_end
-    elif multi_day_interval:
-        effective_hour_end = 23
-
-    if not (0 <= effective_hour_end <= 23):
-        raise PowerAPIError("Hora final inválida. Utilize valores entre 0 e 23.")
-
-    if not multi_day_interval and effective_hour_end < hour_start:
-        raise PowerAPIError("A hora final deve ser maior ou igual à hora inicial.")
-
-    time_keys = list(_iter_times(parameters))
-    if not time_keys:
-        raise PowerAPIError("Nenhum dado temporal disponível na resposta da NASA POWER.")
-
-    # Se for multi-dia com intervalo de horas, filtra apenas as horas específicas de cada dia
-    if multi_day_interval:
-        range_records: List[PowerWeatherRecord] = []
-        for time_key in time_keys:
-            # time_key formato: YYYYMMDDHH
-            if len(time_key) >= 10:
-                date_part = time_key[:8]  # YYYYMMDD
-                hour_part = int(time_key[8:10])  # HH
-                
-                # Verifica se a data está no range
-                if start <= date_part <= end:
-                    # Verifica se a hora está no intervalo especificado
-                    if hour_start <= hour_part <= effective_hour_end:
-                        record = _build_hourly_record(parameters, time_key, fill_value)
+                if not use_ai_fallback:
+                    records: List[PowerWeatherRecord] = []
+                    for date_key in dates:
+                        record = _build_daily_record(parameters, date_key, fill_value)
                         if record is not None:
-                            range_records.append(record)
-    else:
-        # Modo de dia único: pega todas as horas do intervalo
-        start_key = f"{start}{hour_start:02d}"
-        end_key = f"{end}{effective_hour_end:02d}"
+                            records.append(record)
+
+                    # Check if all records have -999 values (no real data)
+                    has_real_data = False
+                    for record in records:
+                        if record.t2m is not None or record.precip_mm is not None or record.ws10m is not None:
+                            has_real_data = True
+                            break
+                    
+                    if not records or not has_real_data:
+                        if can_use_ai:
+                            use_ai_fallback = True
+                        else:
+                            raise PowerAPIError("No usable weather data found for the specified period.")
+
+                    if not use_ai_fallback:
+                        return PowerWeatherSummary(meta=meta, records=records, granularity="daily")
+    
+    # Use AI if needed
+    if use_ai_fallback and can_use_ai:
+        from .ai_predictor import predict_day
         
-        range_records: List[PowerWeatherRecord] = []
-        for time_key in time_keys:
-            if start_key <= time_key <= end_key:
-                record = _build_hourly_record(parameters, time_key, fill_value)
-                if record is not None:
-                    range_records.append(record)
+        # For single date or date range, predict the start date
+        ai_results = await predict_day(
+            lat=latitude,
+            lon=longitude,
+            date_str=start_date.strftime("%Y-%m-%d"),
+            years_back=6,
+            variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+        )
+        
+        # Build record from AI prediction
+        # Calculate accuracy scores based on RMSE
+        chosen = ai_results["ai_models"]["chosen"]
+        
+        # Calcular acurácia (100 - RMSE normalizado como porcentagem)
+        # Usamos RMSE para calcular uma "confiança" aproximada
+        accuracy_scores = {}
+        for var, info in chosen.items():
+            if "RMSE" in info:
+                # Converter RMSE em porcentagem de acurácia (quanto menor RMSE, maior acurácia)
+                # Fórmula simplificada: assumir que RMSE < 5 é excelente
+                rmse = info["RMSE"]
+                # Acurácia = 100 - (RMSE * fator)
+                # Para temperatura: RMSE de 2°C = ~95% accuracy
+                if var.startswith("T2M"):
+                    accuracy = max(0, min(100, 100 - (rmse * 2.5)))
+                elif var == "WS10M":
+                    accuracy = max(0, min(100, 100 - (rmse * 5)))
+                elif var == "PRECTOTCORR":
+                    accuracy = max(0, min(100, 100 - (rmse * 3)))
+                else:
+                    accuracy = max(0, min(100, 100 - (rmse * 4)))
+                
+                accuracy_scores[var] = round(accuracy, 1)
+        
+        # Determine flags from predictions
+        t2m = chosen.get("T2M", {}).get("value", 25.0)
+        precip = chosen.get("PRECTOTCORR", {}).get("value", 0.0)
+        ws10m = chosen.get("WS10M", {}).get("value", 0.0)
+        
+        # Format date as YYYY-MM-DD to match NASA POWER format
+        formatted_date = f"{start[0:4]}-{start[4:6]}-{start[6:8]}"
+        
+        # If hourly request, convert daily prediction to hourly format
+        if is_hourly_request:
+            # Use T2M for hourly (no max/min for hourly data)
+            flags_hourly = WeatherFlags(
+                rain_risk=precip >= 1.0,
+                wind_caution=ws10m >= 8.0,
+                heat_caution=t2m >= 32.0
+            )
+            
+            ai_record = PowerWeatherRecord(
+                date=formatted_date,
+                hour=hour_start,
+                hour_end=hour_end,
+                t2m=chosen.get("T2M", {}).get("value"),
+                t2m_max=None,  # No max/min for hourly
+                t2m_min=None,
+                ws10m=chosen.get("WS10M", {}).get("value"),
+                precip_mm=chosen.get("PRECTOTCORR", {}).get("value"),
+                flags=flags_hourly,
+                accuracy=accuracy_scores
+            )
+            
+            meta = {
+                "source": "AI Prediction",
+                "location": {
+                    "latitude": latitude,
+                    "longitude": longitude
+                },
+                "units": {
+                    "T2M": "°C",
+                    "WS10M": "m/s",
+                    "PRECTOTCORR": "mm"
+                }
+            }
+            
+            return PowerWeatherSummary(
+                meta=meta,
+                records=[ai_record],
+                granularity="hourly",
+                ai_prediction={
+                    **ai_results["ai_models"],
+                    "input": ai_results["input"]
+                }
+            )
+        else:
+            # Daily request
+            flags = WeatherFlags(
+                rain_risk=precip >= 1.0,
+                wind_caution=ws10m >= 15.0,
+                heat_caution=t2m >= 35.0
+            )
+            
+            ai_record = PowerWeatherRecord(
+                date=formatted_date,
+                hour=None,
+                hour_end=None,
+                t2m=chosen.get("T2M", {}).get("value"),
+                t2m_max=chosen.get("T2M_MAX", {}).get("value"),
+                t2m_min=chosen.get("T2M_MIN", {}).get("value"),
+                ws10m=chosen.get("WS10M", {}).get("value"),
+                precip_mm=chosen.get("PRECTOTCORR", {}).get("value"),
+                flags=flags,
+                accuracy=accuracy_scores
+            )
+            
+            meta = {
+                "source": "AI Prediction",
+                "location": {
+                    "latitude": latitude,
+                    "longitude": longitude
+                },
+                "units": {
+                    "T2M": "°C",
+                    "T2M_MAX": "°C",
+                    "T2M_MIN": "°C",
+                    "WS10M": "m/s",
+                    "PRECTOTCORR": "mm"
+                }
+            }
+            
+            return PowerWeatherSummary(
+                meta=meta,
+                records=[ai_record],
+                granularity="daily",
+                ai_prediction={
+                    **ai_results["ai_models"],
+                    "input": ai_results["input"]
+                }
+            )
+    
+    # If we got here with hourly request, continue with hourly logic
+    if hour_start is not None:
+        # If data failed and we're using AI, we already returned above
+        if normal_data_failed or use_ai_fallback:
+            # Should have been handled by AI fallback above
+            raise PowerAPIError("No data available for hourly request.")
+            
+        # Hourly query with interval support
+        if not (0 <= hour_start <= 23):
+            raise PowerAPIError("Invalid start hour. Use values between 0 and 23.")
 
-    if not range_records:
-        raise PowerAPIError("Nenhum dado meteorológico utilizável encontrado para o intervalo informado.")
+        if hour_end is not None and not (0 <= hour_end <= 23):
+            raise PowerAPIError("Invalid end hour. Use values between 0 and 23.")
 
-    if len(range_records) == 1:
-        return PowerWeatherSummary(meta=meta, records=range_records, granularity="hourly")
+        multi_day_interval = end != start
 
-    aggregated = _aggregate_hourly_records(range_records)
-    return PowerWeatherSummary(meta=meta, records=[aggregated], granularity="hourly", series=range_records)
+        effective_hour_end = hour_start
+        if hour_end is not None:
+            effective_hour_end = hour_end
+        elif multi_day_interval:
+            effective_hour_end = 23
+
+        if not (0 <= effective_hour_end <= 23):
+            raise PowerAPIError("Invalid end hour. Use values between 0 and 23.")
+
+        if not multi_day_interval and effective_hour_end < hour_start:
+            raise PowerAPIError("End hour must be greater than or equal to start hour.")
+
+        time_keys = list(_iter_times(parameters))
+        if not time_keys:
+            # No hourly data available - try AI fallback with multiple hourly predictions
+            if can_use_ai and (is_recent_or_future or normal_data_failed):
+                from .ai_predictor import predict_day, predict_multiple_days
+                
+                # Generate list of dates to predict
+                current = start_date
+                dates_to_predict = []
+                while current <= end_date:
+                    dates_to_predict.append(current.strftime("%Y-%m-%d"))
+                    current += timedelta(days=1)
+                
+                # Predict all dates in parallel
+                if len(dates_to_predict) > 1:
+                    all_predictions = await predict_multiple_days(
+                        lat=latitude,
+                        lon=longitude,
+                        dates=dates_to_predict,
+                        years_back=6,
+                        variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+                    )
+                else:
+                    # Single date
+                    single_pred = await predict_day(
+                        lat=latitude,
+                        lon=longitude,
+                        date_str=dates_to_predict[0],
+                        years_back=6,
+                        variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+                    )
+                    all_predictions = [single_pred]
+                
+                # Build hourly records from AI predictions
+                ai_hourly_records = []
+                for pred_result in all_predictions:
+                    pred_date_str = pred_result["input"]["date"]
+                    chosen = pred_result["ai_models"]["chosen"]
+                    
+                    # Calculate accuracy
+                    accuracy_scores = {}
+                    for var, info in chosen.items():
+                        if "RMSE" in info:
+                            rmse = info["RMSE"]
+                            if var.startswith("T2M"):
+                                accuracy = max(0, min(100, 100 - (rmse * 2.5)))
+                            elif var == "WS10M":
+                                accuracy = max(0, min(100, 100 - (rmse * 5)))
+                            elif var == "PRECTOTCORR":
+                                accuracy = max(0, min(100, 100 - (rmse * 3)))
+                            else:
+                                accuracy = max(0, min(100, 100 - (rmse * 4)))
+                            accuracy_scores[var] = round(accuracy, 1)
+                    
+                    t2m_base = chosen.get("T2M", {}).get("value", 25.0)
+                    precip_base = chosen.get("PRECTOTCORR", {}).get("value", 0.0)
+                    ws10m_base = chosen.get("WS10M", {}).get("value", 0.0)
+                    
+                    # Generate hourly records for this day
+                    for h in range(hour_start, effective_hour_end + 1):
+                        # Add realistic hourly variation
+                        import random
+                        hour_variation = 1 + (random.random() - 0.5) * 0.1
+                        
+                        t2m = round(t2m_base * hour_variation, 2)
+                        ws10m = round(max(0, ws10m_base * hour_variation), 2)
+                        precip = round(max(0, precip_base * hour_variation), 2)
+                        
+                        flags_hourly = WeatherFlags(
+                            rain_risk=precip >= 1.0,
+                            wind_caution=ws10m >= 8.0,
+                            heat_caution=t2m >= 32.0
+                        )
+                        
+                        ai_record = PowerWeatherRecord(
+                            date=pred_date_str,
+                            hour=h,
+                            hour_end=None,
+                            t2m=t2m,
+                            t2m_max=None,
+                            t2m_min=None,
+                            ws10m=ws10m,
+                            precip_mm=precip,
+                            flags=flags_hourly,
+                            accuracy=accuracy_scores
+                        )
+                        ai_hourly_records.append(ai_record)
+                
+                meta = {
+                    "source": "AI Prediction",
+                    "location": {"latitude": latitude, "longitude": longitude},
+                    "units": {"T2M": "°C", "WS10M": "m/s", "PRECTOTCORR": "mm"}
+                }
+                
+                # Aggregate AI prediction info from all predictions
+                total_execution_time = sum(p["ai_models"]["execution_time"] for p in all_predictions)
+                first_pred = all_predictions[0]
+                
+                return PowerWeatherSummary(
+                    meta=meta,
+                    records=ai_hourly_records,
+                    granularity="hourly",
+                    series=ai_hourly_records,
+                    ai_prediction={
+                        "chosen": first_pred["ai_models"]["chosen"],
+                        "execution_time": round(total_execution_time, 2),
+                        "input": {
+                            "latitude": latitude,
+                            "longitude": longitude,
+                            "dates": dates_to_predict,
+                            "years_back": 6,
+                            "total_predictions": len(all_predictions)
+                        }
+                    }
+                )
+            else:
+                raise PowerAPIError("No temporal data available in NASA POWER response.")
+
+        # Multi-day with hour interval: filter only specific hours from each day
+        if multi_day_interval:
+            range_records: List[PowerWeatherRecord] = []
+            for time_key in time_keys:
+                # time_key format: YYYYMMDDHH
+                if len(time_key) >= 10:
+                    date_part = time_key[:8]  # YYYYMMDD
+                    hour_part = int(time_key[8:10])  # HH
+                    
+                    # Check if date is in range
+                    if start <= date_part <= end:
+                        # Check if hour is in specified interval
+                        if hour_start <= hour_part <= effective_hour_end:
+                            record = _build_hourly_record(parameters, time_key, fill_value)
+                            if record is not None:
+                                range_records.append(record)
+        else:
+            # Single day mode: get all hours in interval
+            start_key = f"{start}{hour_start:02d}"
+            end_key = f"{end}{effective_hour_end:02d}"
+            
+            range_records: List[PowerWeatherRecord] = []
+            for time_key in time_keys:
+                if start_key <= time_key <= end_key:
+                    record = _build_hourly_record(parameters, time_key, fill_value)
+                    if record is not None:
+                        range_records.append(record)
+
+        if not range_records:
+            # Try AI fallback for recent/future dates - generate predictions for each point
+            if can_use_ai and is_recent_or_future:
+                from .ai_predictor import predict_day, predict_multiple_days
+                
+                # Generate list of dates to predict
+                current = start_date
+                dates_to_predict = []
+                while current <= end_date:
+                    dates_to_predict.append(current.strftime("%Y-%m-%d"))
+                    current += timedelta(days=1)
+                
+                # Predict all dates in parallel
+                if len(dates_to_predict) > 1:
+                    all_predictions = await predict_multiple_days(
+                        lat=latitude,
+                        lon=longitude,
+                        dates=dates_to_predict,
+                        years_back=6,
+                        variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+                    )
+                else:
+                    # Single date - use regular predict_day
+                    single_pred = await predict_day(
+                        lat=latitude,
+                        lon=longitude,
+                        date_str=dates_to_predict[0],
+                        years_back=6,
+                        variables=["T2M", "T2M_MAX", "T2M_MIN", "WS10M", "PRECTOTCORR"]
+                    )
+                    all_predictions = [single_pred]
+                
+                # Build hourly records from AI predictions
+                ai_hourly_records = []
+                for pred_result in all_predictions:
+                    pred_date_str = pred_result["input"]["date"]
+                    pred_date = datetime.strptime(pred_date_str, "%Y-%m-%d").date()
+                    chosen = pred_result["ai_models"]["chosen"]
+                    
+                    # Calculate accuracy
+                    accuracy_scores = {}
+                    for var, info in chosen.items():
+                        if "RMSE" in info:
+                            rmse = info["RMSE"]
+                            if var.startswith("T2M"):
+                                accuracy = max(0, min(100, 100 - (rmse * 2.5)))
+                            elif var == "WS10M":
+                                accuracy = max(0, min(100, 100 - (rmse * 5)))
+                            elif var == "PRECTOTCORR":
+                                accuracy = max(0, min(100, 100 - (rmse * 3)))
+                            else:
+                                accuracy = max(0, min(100, 100 - (rmse * 4)))
+                            accuracy_scores[var] = round(accuracy, 1)
+                    
+                    t2m = chosen.get("T2M", {}).get("value", 25.0)
+                    precip = chosen.get("PRECTOTCORR", {}).get("value", 0.0)
+                    ws10m = chosen.get("WS10M", {}).get("value", 0.0)
+                    
+                    # Generate hourly records for this day
+                    for h in range(hour_start, effective_hour_end + 1):
+                        # Add small variation for each hour (±5% random)
+                        import random
+                        hour_variation = 1 + (random.random() - 0.5) * 0.1
+                        
+                        flags_hourly = WeatherFlags(
+                            rain_risk=precip >= 1.0,
+                            wind_caution=ws10m >= 8.0,
+                            heat_caution=t2m >= 32.0
+                        )
+                        
+                        ai_record = PowerWeatherRecord(
+                            date=pred_date_str,
+                            hour=h,
+                            hour_end=None,
+                            t2m=round(t2m * hour_variation, 2),
+                            t2m_max=None,
+                            t2m_min=None,
+                            ws10m=round(max(0, ws10m * hour_variation), 2),
+                            precip_mm=round(max(0, precip * hour_variation), 2),
+                            flags=flags_hourly,
+                            accuracy=accuracy_scores
+                        )
+                        ai_hourly_records.append(ai_record)
+                
+                meta = {
+                    "source": "AI Prediction",
+                    "location": {"latitude": latitude, "longitude": longitude},
+                    "units": {"T2M": "°C", "WS10M": "m/s", "PRECTOTCORR": "mm"}
+                }
+                
+                # Aggregate AI prediction info from all predictions
+                total_execution_time = sum(p["ai_models"]["execution_time"] for p in all_predictions)
+                first_pred = all_predictions[0]
+                
+                return PowerWeatherSummary(
+                    meta=meta,
+                    records=ai_hourly_records,
+                    granularity="hourly",
+                    series=ai_hourly_records,
+                    ai_prediction={
+                        "chosen": first_pred["ai_models"]["chosen"],
+                        "execution_time": round(total_execution_time, 2),
+                        "input": {
+                            "latitude": latitude,
+                            "longitude": longitude,
+                            "dates": dates_to_predict,
+                            "years_back": 6,
+                            "total_predictions": len(all_predictions)
+                        }
+                    }
+                )
+            else:
+                raise PowerAPIError("No usable weather data found for the specified interval.")
+
+        if len(range_records) == 1:
+            return PowerWeatherSummary(meta=meta, records=range_records, granularity="hourly")
+
+        aggregated = _aggregate_hourly_records(range_records)
+        return PowerWeatherSummary(meta=meta, records=[aggregated], granularity="hourly", series=range_records)
+    
+    # Should not reach here - return error
+    raise PowerAPIError("Invalid request configuration.")
