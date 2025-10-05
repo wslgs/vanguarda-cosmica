@@ -1,0 +1,24 @@
+<svg width="120" height="48" viewBox="0 0 120 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="rainLogoTitle rainLogoDesc">
+  <title id="rainLogoTitle">Logotipo Rain</title>
+  <desc id="rainLogoDesc">Ícone em forma de gota com linhas orbitais.</desc>
+  <defs>
+    <linearGradient id="rainGradient" x1="10" y1="4" x2="62" y2="38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7CF1FF" />
+      <stop offset="0.55" stop-color="#A96BFF" />
+      <stop offset="1" stop-color="#401588" />
+    </linearGradient>
+    <linearGradient id="ringGradient" x1="32" y1="10" x2="95" y2="38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="rgba(124, 241, 255, 0.6)" />
+      <stop offset="1" stop-color="rgba(169, 107, 255, 0.4)" />
+    </linearGradient>
+    <filter id="shadow" x="-20" y="-20" width="160" height="120" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="rgba(12, 16, 45, 0.45)" />
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M30 4C24.876 12.938 17 21.912 17 30C17 37.18 22.82 43 30 43C37.18 43 43 37.18 43 30C43 21.842 35.187 12.922 30 4Z" fill="url(#rainGradient)" />
+    <path d="M61.5 12C52.316 12 44 14.465 38.5 18.3C35.437 20.424 34 22.78 34 25.2C34 32.312 46.125 38 61.5 38C76.875 38 89 32.312 89 25.2C89 22.78 87.563 20.424 84.5 18.3C79 14.465 70.684 12 61.5 12ZM61.5 14C70.212 14 78.12 16.331 83.094 19.675C85.7 21.42 87 23.318 87 25.2C87 30.976 75.917 36 61.5 36C47.083 36 36 30.976 36 25.2C36 23.318 37.3 21.42 39.906 19.675C44.88 16.331 52.788 14 61.5 14Z" fill="url(#ringGradient)" />
+    <circle cx="93" cy="17" r="3" fill="#A96BFF" />
+    <circle cx="103" cy="28" r="2.5" fill="#7CF1FF" />
+  </g>
+</svg>
