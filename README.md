@@ -149,11 +149,3 @@ Response includes:
 **Backend**: `fastapi`, `uvicorn[standard]`, `httpx`, `pydantic`, `pandas`, `numpy`, `scikit-learn`, `statsmodels`
 
 **Frontend**: `react`, `vite`, `chart.js`, `react-chartjs-2`
-
-## 📜 License
-
-MIT (or your preferred license).
-
----
-
-**Tip for integrators**: The backend intentionally **does not** change its JSON schema when switching between NASA POWER and AI predictions. Confidence badges are computed at the presentation layer from the returned **RMSE/F1** of the chosen model.
