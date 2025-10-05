@@ -114,6 +114,25 @@ npm run dev
 
 Open `http://localhost:5173`.
 
+## 🌐 GitHub Pages Deployment
+
+> GitHub Pages serves only static files. Host the FastAPI backend elsewhere (Fly.io, Railway, Render, VPS, etc.) and expose it through `VITE_API_BASE`.
+
+1. Configure a production API base URL. Example:
+
+  ```bash
+  # frontend/.env.production
+  VITE_API_BASE=https://weather-api.example.com
+  VITE_GOOGLE_MAPS_API_KEY=your-google-key
+  ```
+
+2. In the repository **Settings → Pages**, select **Source: GitHub Actions**. This enables deployments produced by the workflow.
+3. Push (or merge) into `main`. The workflow **Deploy Frontend to GitHub Pages** will:
+  * install and build the React app from `/frontend`
+  * publish `dist/` to the `github-pages` environment
+
+4. Once the job succeeds, your site becomes available at `https://<github-user>.github.io/vanguarda-cosmica/` (the Vite build already uses the repository subpath). The workflow also supports manual re-deploys via **Actions → Deploy Frontend to GitHub Pages → Run workflow**.
+
 ## 🧪 Quick AI Test
 
 Force a date likely to require AI prediction:
