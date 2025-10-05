@@ -1,306 +1,159 @@
 # Vanguarda Cósmica – Weather Intelligence
 
-Aplicativo full-stack com **previsão meteorológica inteligente**: o usuário informa um **local** e recebe dados climáticos da NASA POWER. Quando dados não estão disponíveis (datas recentes/futuras), o sistema utiliza **Machine Learning** para gerar previsões com 3 modelos de IA (SARIMAX, Gradient Boosting, Random Forest).
+*A full‑stack, AI‑powered weather forecaster that blends trusted NASA POWER data with robust machine learning to fill gaps and predict the future.*
 
-## 🌟 Funcionalidades
+## 🚀 Why this project
 
-- 🗺️ **Busca de Localização**: Google Places autocomplete + geocoding
-- 🌤️ **Dados Meteorológicos**: NASA POWER API (temperatura, vento, precipitação)
-- 🤖 **Previsão com IA**: ML models treinados com 6 anos de dados históricos
-- 📊 **Acurácia Visível**: Cada métrica de IA mostra sua porcentagem de confiança
-- 🌐 **Bilíngue**: Suporte completo PT-BR e EN
-- 📈 **Visualização**: Gráficos interativos para dados horários
+Vanguarda Cósmica turns raw geospatial data into **actionable, trustworthy forecasts**. When official data is missing (very recent or future dates), the system trains an on‑the‑fly ensemble (SARIMAX, Gradient Boosting, Random Forest) over **6 years** of local history to generate accurate day‑ahead predictions — and exposes **clear confidence/accuracy** signals for users.
 
-## 🏗️ Arquitetura
+## ✨ Highlights
 
-- **Backend (`/backend`)**: FastAPI + NASA POWER + scikit-learn + statsmodels
-- **Frontend (`/frontend`)**: React + Vite + Chart.js
-- **IA**: 3 modelos ensemble (auto-seleção por RMSE)
+* **Smart Location Search**: Google Places autocomplete + geocoding.
+* **Authoritative Data**: NASA POWER daily climate variables (temperature, wind, precipitation).
+* **AI Ensemble**: Three complementary models with **auto-selection** per variable.
+* **Accuracy Signals**: Frontend badges show % confidence derived from model RMSE; precipitation badges reflect the same heuristic percentage, while the raw **F1 score** is exposed in the API response.
+* **Bilingual UX**: Full PT‑BR and EN support.
+* **Interactive Visuals**: Clean charts for daily or hourly exploration.
 
-### Endpoints da API
+## 🧠 AI System (Computational Power)
 
-- `POST /api/geocode` → Converte local em coordenadas
-- `GET /api/place-autocomplete` → Sugestões de localização
-- `GET /api/weather-summary` → Dados climáticos (usa IA automaticamente quando necessário)
+* **Parallel, async data ingestion** (httpx + asyncio) for fast multi‑year retrieval.
+* **Feature engineering at scale**: vectorized lags/rolling stats (NumPy/Pandas) + cyclical time encoding.
+* **Three model families**:
 
-## 🤖 Sistema de IA
+  * **SARIMAX**: seasonal time‑series with weekly seasonality for structure and trend.
+  * **Gradient Boosting**: powerful, bias‑variance balanced regressor.
+  * **Random Forest**: robust, low‑overfit baseline with parallel inference.
+* **Model selection per variable**:
 
-Quando a NASA POWER não tem dados disponíveis (valores -999 ou erro), o sistema:
+  * **Model choice**: currently selects whichever model yields the **lowest RMSE** for each variable. For precipitation we still report the F1 score, enabling future rule updates without breaking the schema.
+  * **Confidence & Accuracy**:
 
-1. **Busca 6 anos** de dados históricos da mesma localização
-2. **Treina 3 modelos** para cada variável:
-   - SARIMAX (séries temporais com sazonalidade)
-   - Gradient Boosting (ensemble tree-based)
-   - Random Forest (ensemble robusto)
-3. **Seleciona automaticamente** o modelo com menor RMSE
-4. **Calcula acurácia** baseada no RMSE de validação
-5. **Retorna previsão** com indicador de confiança
+    * **Temperature/Wind**: confidence % is derived from the chosen model’s **RMSE** via a linear heuristic (smaller RMSE ⇒ higher %).
+    * **Precipitation occurrence**: UI confidence % uses the same heuristic; the exact **F1 score** is available in `ai_prediction.chosen.PRECTOTCORR.F1` for consumers that need classification metrics.
+* **Resilience**: When remote data fails or is incomplete, a deterministic **synthetic climatology** generator preserves continuity for demos/dev, clearly flagged as synthetic.
 
-### Acurácia Exibida
+## 🏗️ Architecture
+
+* **Backend (`/backend`)**: FastAPI • httpx • Pandas/NumPy • scikit‑learn • statsmodels
+* **Frontend (`/frontend`)**: React • Vite • Chart.js
+* **Infra ready**: stateless API, simple to containerize; async I/O; CPU‑parallel tree models.
+
+## 🔌 API Endpoints
+
+* `POST /api/geocode` → free‑text place → `{ lat, lon }`
+* `GET /api/place-autocomplete?q=...` → location suggestions
+* `GET /api/weather-summary?lat=..&lon=..&start_date=YYYYMMDD[&end_date=YYYYMMDD][&hour_start=&hour_end=]` → unified weather summary
+
+  * Uses NASA POWER when available; otherwise triggers AI prediction.
+
+### Example (daily)
+
+```bash
+curl "http://localhost:8000/api/weather-summary?lat=-7.12&lon=-34.88&start_date=20251004"
+```
+
+Response (abridged):
 
 ```json
 {
-  "accuracy": {
-    "T2M": 99.2,      // 99.2% de acurácia
-    "T2M_MAX": 98.3,  // 98.3% de acurácia
-    "WS10M": 96.9,    // 96.9% de acurácia
-    "PRECTOTCORR": 84.3  // 84.3% de acurácia
-  }
+  "meta": { "service": "POWER", "units": {"T2M": "C", "WS10M": "m/s", "PRECTOT": "mm"} },
+  "granularity": "daily",
+  "data": [
+    {
+      "date": "2025-10-04",
+      "t2m": 25.7,
+      "t2m_max": 31.2,
+      "t2m_min": 21.3,
+      "ws10m": 5.6,
+      "precip_mm": 1.8,
+      "flags": { "rain_risk": false, "wind_caution": false, "heat_caution": false }
+    }
+  ]
 }
 ```
 
-A acurácia aparece como badge roxo junto a cada métrica no frontend.
-
-## 📦 Dependências Backend
-
-```txt
-fastapi
-uvicorn[standard]
-httpx
-pydantic
-pandas
-numpy
-scikit-learn
-statsmodels
-```
-
-## 📦 Dependências Frontend
-
-```txt
-react
-chart.js
-react-chartjs-2
-```
-
-## Como rodar o backend
-
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-export GOOGLE_MAPS_API_KEY="sua-chave-google"
-uvicorn app.main:app --reload --port 8000
-```
-
-## Como rodar o frontend
-
-```bash
-cd frontend
-npm install
-echo "VITE_GOOGLE_MAPS_API_KEY=sua-chave-google" > .env.local
-echo "VITE_API_BASE=http://localhost:8000" >> .env.local
-npm run dev
-```
-
-Acesse: `http://localhost:5173`
-
-## 🧪 Testando a Previsão com IA
-
-```bash
-# Testar para data sem dados disponíveis (usa IA)
-curl "http://localhost:8000/api/weather-summary?lat=-7.12&lon=-34.88&start_date=20251004&end_date=20251004"
-```
-
-Resposta incluirá:
-- ✅ `data[0].accuracy` - Porcentagens de acurácia por variável
-- ✅ `ai_prediction.chosen` - Melhor modelo selecionado para cada métrica
-- ✅ `meta.source` - "AI Prediction"
-
-## 🎨 Interface do Usuário
-
-### Feedback de Carregamento Progressivo
-
-Quando consulta demora (IA processando):
-
-1. **Fase 0** (0-1.5s): "Pesquisando dados..."
-2. **Fase 1** (1.5-4s): "Analisando padrões..." + animação ativa
-3. **Fase 2** (4-7s): "Gerando previsão..."
-4. **Fase 3** (7s+): "Finalizando resultados..."
-
-### Cards de Dados com Acurácia
-
-Quando IA é usada, cada métrica mostra:
-
-```
-🌡️ Temperatura: 25.4°C
-   [96.9% accuracy] ← Badge roxo
-```
-
-## Consulta de clima (NASA POWER)
-
-Endpoint unificado que usa automaticamente IA quando necessário:
-
-```bash
-curl "http://localhost:8000/api/weather-summary?lat=-7.12&lon=-34.86&date=20251004"
-```
-
-Resposta (resumo diário):
-
-```json
-{
-	"meta": {
-		"service": "POWER",
-		"version": "2.0",
-		"time_standard": "LST",
-		"available_start": "20251001",
-		"available_end": "20251004",
-		"units": {
-			"T2M": "C",
-			"WS10M": "m/s",
-			"PRECTOT": "mm"
-		}
-	},
-	"granularity": "daily",
-	"data": [
-		{
-			"date": "2025-10-04",
-			"hour": null,
-			"hour_end": null,
-			"t2m": 25.7,
-			"t2m_max": 31.2,
-			"t2m_min": 21.3,
-			"ws10m": 5.6,
-			"precip_mm": 1.8,
-			"flags": {
-				"rain_risk": false,
-				"wind_caution": false,
-				"heat_caution": false
-			}
-		}
-	],
-	"series": null
-}
-```
-
-Uso horário (hora 15):
-
-```bash
-curl "http://localhost:8000/api/weather-summary?lat=-7.12&lon=-34.86&date=20251004&hour_start=15"
-```
-
-```json
-{
-	"meta": { "...": "..." },
-	"granularity": "hourly",
-	"data": [
-		{
-			"date": "2025-10-04",
-			"hour": 15,
-			"hour_end": null,
-			"t2m": 26.1,
-			"ws10m": 4.8,
-			"precip_mm": 0.0,
-			"flags": {
-				"rain_risk": false,
-				"wind_caution": false,
-				"heat_caution": false
-			}
-		}
-	],
-	"series": null
-}
-```
-
-Uso por intervalo (média ponderada das horas entre 10h e 13h):
+### Hourly slice
 
 ```bash
 curl "http://localhost:8000/api/weather-summary?lat=-7.12&lon=-34.86&date=20251004&hour_start=10&hour_end=13"
 ```
 
-```json
-{
-	"meta": { "...": "..." },
-	"granularity": "hourly",
-	"data": [
-		{
-			"date": "2025-10-04",
-			"hour": 10,
-			"hour_end": 13,
-			"t2m": 27.4,
-			"ws10m": 6.1,
-			"precip_mm": 1.5,
-			"flags": {
-				"rain_risk": true,
-				"wind_caution": false,
-				"heat_caution": false
-			}
-		}
-	],
-	"series": [
-		{
-			"date": "2025-10-04",
-			"hour": 10,
-			"hour_end": null,
-			"t2m": 26.0,
-			"ws10m": 5.5,
-			"precip_mm": 1.0,
-			"flags": {
-				"rain_risk": false,
-				"wind_caution": false,
-				"heat_caution": false
-			}
-		},
-		{
-			"date": "2025-10-04",
-			"hour": 11,
-			"hour_end": null,
-			"t2m": 27.0,
-			"ws10m": 6.4,
-			"precip_mm": 1.3,
-			"flags": {
-				"rain_risk": false,
-				"wind_caution": false,
-				"heat_caution": false
-			}
-		},
-		{
-			"date": "2025-10-04",
-			"hour": 12,
-			"hour_end": null,
-			"t2m": 28.4,
-			"ws10m": 7.0,
-			"precip_mm": 1.8,
-			"flags": {
-				"rain_risk": true,
-				"wind_caution": false,
-				"heat_caution": false
-			}
-		},
-		{
-			"date": "2025-10-04",
-			"hour": 13,
-			"hour_end": null,
-			"t2m": 28.2,
-			"ws10m": 7.4,
-			"precip_mm": 1.9,
-			"flags": {
-				"rain_risk": true,
-				"wind_caution": false,
-				"heat_caution": false
-			}
-		}
-	]
-}
-```
+Returns an aggregated block **plus** the underlying hourly `series` for charting.
 
-O backend elimina valores faltantes (`-999`) e calcula *flags* simples para chuva, vento e calor, facilitando o cálculo de um "score de evento ao ar livre" no frontend.
+## 📊 Accuracy Display (Frontend)
 
-Sempre que um intervalo é solicitado, a chave `series` traz cada hora individual para alimentar visualizações (como o gráfico exibido no frontend) mantendo, ao mesmo tempo, o resumo agregado na lista principal.
+Each variable renders a **purple badge** next to the metric:
 
-## Testes do backend
+* **Temperature**: `T:72%`
+* **Wind**: `W:69%`
+* **Precipitation (occurrence)**: `P:84%`
+
+> The percentages are computed from the model selected per variable using the RMSE-based confidence heuristic. For precipitation, the UI shows the same heuristic %, while the precise F1 score is available via API/tooltips.
+
+## ⚙️ Backend Setup
 
 ```bash
 cd backend
-source .venv/bin/activate
-pytest
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+export GOOGLE_MAPS_API_KEY="your-google-key"
+uvicorn app.main:app --reload --port 8000
 ```
 
-Os testes substituem o geocoder real por um stub para manter previsibilidade offline.
+## 🖥️ Frontend Setup
 
-## Próximos passos
+```bash
+cd frontend
+npm install
+echo "VITE_GOOGLE_MAPS_API_KEY=your-google-key" > .env.local
+echo "VITE_API_BASE=http://localhost:8000" >> .env.local
+npm run dev
+```
 
-- Comparar múltiplos intervalos horários lado a lado em um painel analítico.
-- Exibir opções avançadas no mapa (zoom customizado, camadas, modo satélite).
-- Oferecer histórico local das pesquisas recentes.
+Open `http://localhost:5173`.
+
+## 🧪 Quick AI Test
+
+Force a date likely to require AI prediction:
+
+```bash
+curl "http://localhost:8000/api/weather-summary?lat=-7.12&lon=-34.88&start_date=20251004&end_date=20251004"
+```
+
+Response includes:
+
+* `ai_prediction.chosen` → best model per variable
+* `data[0].accuracy` (UI‑level percentage badges derived from RMSE/F1)
+* `meta.source = "AI Prediction"`
+
+## 🔒 Reliability & Performance
+
+* **Async I/O** for NASA POWER → faster multi‑year pulls.
+* **Deterministic seeds** per (lat, lon) to stabilize synthetic fallbacks.
+* **Temporal validation (60/40)** to avoid leakage; weekly seasonality in SARIMAX.
+* **Vectorized features** (lags/rolling windows) for speed and reproducibility.
+* **Graceful degradation**: even with missing remote data, the pipeline remains usable for demos and testing.
+
+## 📈 Roadmap
+
+* Walk‑forward cross‑validation (TimeSeriesSplit) for even stabler metrics.
+* Probabilistic precipitation (Brier score, PR‑AUC) and calibrated probabilities.
+* Conformal prediction intervals with empirical coverage reporting (e.g., 80/90%).
+* Containerization + CI/CD (GitHub Actions) for one‑click deploys.
+* Map extras: zoom presets, satellite layers, recent‑search history.
+
+## 📦 Dependencies
+
+**Backend**: `fastapi`, `uvicorn[standard]`, `httpx`, `pydantic`, `pandas`, `numpy`, `scikit-learn`, `statsmodels`
+
+**Frontend**: `react`, `vite`, `chart.js`, `react-chartjs-2`
+
+## 📜 License
+
+MIT (or your preferred license).
+
+---
+
+**Tip for integrators**: The backend intentionally **does not** change its JSON schema when switching between NASA POWER and AI predictions. Confidence badges are computed at the presentation layer from the returned **RMSE/F1** of the chosen model.

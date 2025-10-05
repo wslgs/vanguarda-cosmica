@@ -99,514 +99,235 @@ function createSessionToken() {
 }
 
 function generatePDF({
-  weatherResult,
-  geocodeResult,
+  sections,
   t,
   locale = 'en',
-  filters = {},
-  insights = [],
-  selectedIntervalSeries = null,
-  selectedIntervalDateLabel = null,
-  units = {},
+  filters = [],
 }) {
   try {
-    if (!weatherResult) {
-      throw new Error('Missing weather data');
+    if (!Array.isArray(sections) || sections.length === 0) {
+      throw new Error('No weather sections provided.');
     }
 
     const localeTag = locale === 'pt' ? 'pt-BR' : 'en-US';
     const numberFormatter = new Intl.NumberFormat(localeTag, { maximumFractionDigits: 1 });
     const dateFormatter = new Intl.DateTimeFormat(localeTag, { dateStyle: 'long', timeZone: 'UTC' });
+    const timestampFormatter = new Intl.DateTimeFormat(localeTag, { dateStyle: 'long', timeStyle: 'short' });
 
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const marginLeft = 15;
+    const lineHeight = 5;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let y = 20;
 
-    const primaryColor = [169, 107, 255];
-    const textColor = [40, 40, 60];
-    const lightGray = [200, 200, 210];
-    const subtleRow = [245, 245, 250];
-
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const marginLeft = 20;
-    const marginRight = 20;
-    const contentWidth = pageWidth - marginLeft - marginRight;
-    let yPos = 20;
-
-    const ensureSpace = (needed = 12) => {
-      if (yPos + needed > 275) {
+    const ensureSpace = (needed = 10) => {
+      if (y + needed > pageHeight - 15) {
         doc.addPage();
-        yPos = 20;
+        y = 20;
       }
     };
 
-    const resolvedLocation = filters.locationName
-      ?? geocodeResult?.formatted_address
-      ?? geocodeResult?.query
-      ?? '';
-
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.rect(0, 0, pageWidth, 40, 'F');
-
-    doc.setFontSize(24);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(255, 255, 255);
-    doc.text(t.pdfReportTitle, pageWidth / 2, 20, { align: 'center' });
+    doc.setFontSize(16);
+    doc.text(t.pdfReportTitle ?? 'Weather Forecast Report', marginLeft, y);
+    y += lineHeight + 1;
 
-    if (resolvedLocation) {
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'normal');
-      doc.text(resolvedLocation, pageWidth / 2, 30, { align: 'center' });
-    }
-
-    yPos = 50;
-    doc.setTextColor(textColor[0], textColor[1], textColor[2]);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(9);
+    const generatedText = (t.pdfGeneratedAt ?? 'Generated: {timestamp}').replace(
+      '{timestamp}',
+      timestampFormatter.format(new Date())
+    );
+    doc.text(generatedText, marginLeft, y);
+    y += lineHeight;
 
-    if (geocodeResult?.latitude !== undefined && geocodeResult?.longitude !== undefined) {
-      const coordinateText = t.pdfCoordinates
-        .replace('{lat}', geocodeResult.latitude.toFixed(4))
-        .replace('{lon}', geocodeResult.longitude.toFixed(4));
-      doc.text(coordinateText, marginLeft, yPos);
-      yPos += 7;
-    }
-
-    const timestamp = new Intl.DateTimeFormat(localeTag, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date());
-    doc.text(t.pdfGeneratedAt.replace('{timestamp}', timestamp), marginLeft, yPos);
-    yPos += 10;
-
-    if (weatherResult.ai_prediction) {
-      ensureSpace(12);
-      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(9);
-      const execution = weatherResult.ai_prediction.execution_time
-        ? ` (${weatherResult.ai_prediction.execution_time}s)`
-        : '';
-      const badgeText = `${t.aiGeneratedPrediction}${execution}`;
-      const badgeWidth = doc.getTextWidth(badgeText) + 6;
-      doc.roundedRect(marginLeft, yPos - 4, badgeWidth, 7, 2, 2, 'F');
-      doc.text(badgeText, marginLeft + 3, yPos + 1.5);
-      doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-      yPos += 12;
-    }
-
-    doc.setDrawColor(lightGray[0], lightGray[1], lightGray[2]);
-    doc.setLineWidth(0.5);
-    doc.line(marginLeft, yPos, pageWidth - marginRight, yPos);
-    yPos += 10;
-
-    const filterItems = Array.isArray(filters.items) ? filters.items.filter((item) => item?.value) : [];
-    if (filterItems.length > 0) {
+    if (Array.isArray(filters) && filters.length > 0) {
+      ensureSpace(lineHeight * (filters.length + 2));
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.text(t.pdfFiltersTitle, marginLeft, yPos);
-      yPos += 8;
-
-      filterItems.forEach(({ label, value }) => {
+      doc.setFontSize(11);
+      doc.text(t.pdfFiltersTitle ?? 'Filters applied', marginLeft, y);
+      y += lineHeight;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      filters.forEach(({ label, value }) => {
         if (!value) {
           return;
         }
-        ensureSpace(15);
-        const formattedValue = doc.splitTextToSize(String(value), contentWidth - 45);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.text(`${label}:`, marginLeft, yPos);
-        doc.setFont('helvetica', 'normal');
-        doc.text(formattedValue, marginLeft + 40, yPos);
-        const blockHeight = formattedValue.length * 5;
-        yPos += blockHeight + 4;
+        ensureSpace(lineHeight);
+        doc.text(`${label}: ${value}`, marginLeft, y);
+        y += lineHeight;
       });
-
-      yPos += 4;
+      y += lineHeight / 2;
     }
 
-    if (insights && insights.length > 0) {
-      ensureSpace(18);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.text(t.pdfInsightsTitle, marginLeft, yPos);
-      yPos += 8;
-
-      const insightStyles = {
-        alert: {
-          fill: [255, 244, 244],
-          border: [255, 145, 145],
-          text: [120, 35, 35],
-          indicator: [240, 80, 80],
-        },
-        warning: {
-          fill: [255, 248, 235],
-          border: [255, 198, 111],
-          text: [115, 70, 10],
-          indicator: [235, 150, 45],
-        },
-        good: {
-          fill: [236, 250, 243],
-          border: [136, 214, 170],
-          text: [35, 90, 55],
-          indicator: [45, 140, 90],
-        },
-        info: {
-          fill: [238, 243, 255],
-          border: [150, 170, 255],
-          text: [45, 65, 120],
-          indicator: [85, 120, 210],
-        },
-        default: {
-          fill: [245, 245, 250],
-          border: [200, 200, 210],
-          text: [60, 60, 80],
-          indicator: [120, 120, 140],
-        },
-      };
-
-      const toneLabels = {
-        alert: t.pdfInsightToneAlert,
-        warning: t.pdfInsightToneWarning,
-        good: t.pdfInsightToneGood,
-        info: t.pdfInsightToneInfo,
-      };
-
-      const cardPaddingX = 10;
-      const cardPaddingY = 6;
-      const labelLineHeight = 5;
-      const textLineHeight = 4.6;
-      const indicatorRadius = 2.5;
-
-      insights.forEach(({ text, tone }) => {
-        if (!text) {
-          return;
-        }
-
-        const style = insightStyles[tone] ?? insightStyles.default;
-        const toneLabel = toneLabels[tone] ?? toneLabels.info ?? t.pdfInsightToneInfo;
-        const bodyLines = doc.splitTextToSize(text, contentWidth - cardPaddingX * 2);
-        const textBlockHeight = bodyLines.length * textLineHeight;
-  const cardHeight = cardPaddingY * 2 + labelLineHeight + textBlockHeight + 2;
-
-  ensureSpace(cardHeight + 6);
-
-  const cardTop = yPos;
-  const labelTop = cardTop + cardPaddingY;
-
-  doc.setFillColor(style.fill[0], style.fill[1], style.fill[2]);
-  doc.setDrawColor(style.border[0], style.border[1], style.border[2]);
-  doc.roundedRect(marginLeft, cardTop, contentWidth, cardHeight, 3, 3, 'FD');
-
-        const indicatorX = marginLeft + cardPaddingX;
-        const indicatorY = labelTop + labelLineHeight / 2;
-        doc.setFillColor(style.indicator[0], style.indicator[1], style.indicator[2]);
-        doc.circle(indicatorX, indicatorY, indicatorRadius, 'F');
-
-        const labelX = indicatorX + indicatorRadius + 3.5;
-        const labelY = labelTop;
-        doc.setTextColor(style.text[0], style.text[1], style.text[2]);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.text(String(toneLabel).toUpperCase(), labelX, labelY, { baseline: 'top' });
-
-        const textX = marginLeft + cardPaddingX;
-  const textY = labelTop + labelLineHeight + 2;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.text(bodyLines, textX, textY, { baseline: 'top' });
-
-        yPos += cardHeight + 6;
-
-        doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-        doc.setDrawColor(lightGray[0], lightGray[1], lightGray[2]);
-      });
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      yPos += 2;
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text(t.pdfMetricsTitle, marginLeft, yPos);
-    yPos += 8;
-
-    const displayData = Array.isArray(weatherResult.data) ? weatherResult.data : [];
-    const temperatureUnit = units.T2M ?? '°C';
-    const windUnit = units.WS10M ?? 'm/s';
-    const precipUnit = units.PRECTOTCORR ?? units.PRECTOT ?? 'mm';
-    const isHourlyGranularity = weatherResult.granularity === 'hourly';
-
-    const dateColumnX = marginLeft + 2;
-    const tempColumnX = marginLeft + 70;
-    const windColumnX = marginLeft + 115;
-    const precipColumnX = marginLeft + 155;
-
-    const drawMetricsHeader = () => {
-      doc.setFillColor(subtleRow[0], subtleRow[1], subtleRow[2]);
-      doc.rect(marginLeft, yPos - 5, contentWidth, 8, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text(t.date, dateColumnX, yPos);
-      doc.text(`${t.temperature} (${temperatureUnit})`, tempColumnX, yPos);
-      doc.text(`${t.wind10m} (${windUnit})`, windColumnX, yPos);
-      doc.text(`${t.precipitation} (${precipUnit})`, precipColumnX, yPos);
-      yPos += 9;
+    const formatMetric = (value, unit) => {
+      if (value === null || value === undefined || Number.isNaN(value)) {
+        return '-';
+      }
+      return `${numberFormatter.format(value)}${unit ? ` ${unit}` : ''}`;
     };
 
-    if (displayData.length === 0) {
-      const noDataLines = doc.splitTextToSize(t.pdfNoData, contentWidth);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.text(noDataLines, marginLeft, yPos);
-      yPos += noDataLines.length * 5 + 6;
-    } else {
-      drawMetricsHeader();
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
+    const formatDate = (iso) => {
+      const dt = toUTCDate(iso);
+      return dt ? dateFormatter.format(dt) : iso ?? '-';
+    };
 
-      displayData.forEach((entry, index) => {
-        ensureSpace(18);
-
-        const rowTop = yPos - 4;
-        const rowHeightEstimate = 10;
-        if (index % 2 === 0) {
-          doc.setFillColor(250, 250, 252);
-          doc.rect(marginLeft, rowTop, contentWidth, rowHeightEstimate + 2, 'F');
-        }
-
-        const formatHour = (value) => {
-          if (value === null || value === undefined) {
-            return null;
-          }
-          return `${String(value).padStart(2, '0')}h`;
-        };
-
-        const entryDate = entry.date ? toUTCDate(entry.date) : null;
-        const dateLabel = entryDate ? dateFormatter.format(entryDate) : '-';
-        const hourStart = formatHour(entry.hour);
-        const hourEnd = formatHour(entry.hour_end);
-        const hourLabel = isHourlyGranularity
-          ? hourStart && hourEnd && hourEnd !== hourStart
-            ? `${hourStart} → ${hourEnd}`
-            : hourStart ?? hourEnd ?? '-'
-          : null;
-
-        const dateLines = isHourlyGranularity && hourLabel
-          ? doc.splitTextToSize(`${dateLabel}\n${t.hour}: ${hourLabel}`, 60)
-          : doc.splitTextToSize(dateLabel, 60);
-
-        const temperatureParts = [];
-        if (entry.t2m !== null && entry.t2m !== undefined) {
-          temperatureParts.push(`${numberFormatter.format(entry.t2m)} ${temperatureUnit}`);
-        }
-        if (entry.t2m_max !== null && entry.t2m_max !== undefined) {
-          temperatureParts.push(`${t.high}: ${numberFormatter.format(entry.t2m_max)} ${temperatureUnit}`);
-        }
-        if (entry.t2m_min !== null && entry.t2m_min !== undefined) {
-          temperatureParts.push(`${t.low}: ${numberFormatter.format(entry.t2m_min)} ${temperatureUnit}`);
-        }
-        const temperatureText = temperatureParts.length > 0 ? temperatureParts.join('\n') : '-';
-        const temperatureLines = doc.splitTextToSize(temperatureText, 40);
-
-        const windText = entry.ws10m !== null && entry.ws10m !== undefined
-          ? `${numberFormatter.format(entry.ws10m)} ${windUnit}`
-          : '-';
-        const windLines = doc.splitTextToSize(windText, 30);
-
-        const precipText = entry.precip_mm !== null && entry.precip_mm !== undefined
-          ? `${numberFormatter.format(entry.precip_mm)} ${precipUnit}`
-          : '-';
-        const precipLines = doc.splitTextToSize(precipText, 30);
-
-        const maxLines = Math.max(dateLines.length, temperatureLines.length, windLines.length, precipLines.length);
-        const rowHeight = maxLines * 5 + 2;
-
-        doc.text(dateLines, dateColumnX, yPos);
-        doc.text(temperatureLines, tempColumnX, yPos);
-        doc.text(windLines, windColumnX, yPos);
-        doc.text(precipLines, precipColumnX, yPos);
-
-        yPos += rowHeight;
-
-        if (entry.accuracy) {
-          doc.setFontSize(7);
-          doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-          const accParts = [];
-          if (entry.accuracy.T2M) {
-            accParts.push(`T:${entry.accuracy.T2M.toFixed(0)}%`);
-          }
-          if (entry.accuracy.WS10M) {
-            accParts.push(`W:${entry.accuracy.WS10M.toFixed(0)}%`);
-          }
-          if (entry.accuracy.PRECTOTCORR) {
-            accParts.push(`P:${entry.accuracy.PRECTOTCORR.toFixed(0)}%`);
-          }
-          if (accParts.length > 0) {
-            doc.text(`Accuracy: ${accParts.join(' ')}`, dateColumnX, yPos);
-            yPos += 4;
-          }
-          doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-          doc.setFontSize(9);
-        }
-
-        if (yPos + 10 > 275 && index < displayData.length - 1) {
-          doc.addPage();
-          yPos = 20;
-          drawMetricsHeader();
-        }
-      });
-    }
-
-    const summaryLines = [];
-    const temperatureValues = displayData
-      .map((entry) => (entry.t2m !== null && entry.t2m !== undefined ? entry.t2m : null))
-      .filter((value) => value !== null);
-    const windValues = displayData
-      .map((entry) => (entry.ws10m !== null && entry.ws10m !== undefined ? entry.ws10m : null))
-      .filter((value) => value !== null);
-    const precipitationValues = displayData
-      .map((entry) => (entry.precip_mm !== null && entry.precip_mm !== undefined ? entry.precip_mm : null))
-      .filter((value) => value !== null);
-
-    if (temperatureValues.length > 0) {
-      const avgTemp = temperatureValues.reduce((sum, value) => sum + value, 0) / temperatureValues.length;
-      const maxTemp = Math.max(...temperatureValues);
-      const minTemp = Math.min(...temperatureValues);
-      summaryLines.push(
-        t.pdfSummaryAvgTemperature.replace('{value}', `${numberFormatter.format(avgTemp)} ${temperatureUnit}`)
-      );
-      summaryLines.push(
-        t.pdfSummaryMaxTemperature.replace('{value}', `${numberFormatter.format(maxTemp)} ${temperatureUnit}`)
-      );
-      summaryLines.push(
-        t.pdfSummaryMinTemperature.replace('{value}', `${numberFormatter.format(minTemp)} ${temperatureUnit}`)
-      );
-    }
-
-    if (windValues.length > 0) {
-      const avgWind = windValues.reduce((sum, value) => sum + value, 0) / windValues.length;
-      summaryLines.push(
-        t.pdfSummaryAvgWind.replace('{value}', `${numberFormatter.format(avgWind)} ${windUnit}`)
-      );
-    }
-
-    if (precipitationValues.length > 0) {
-      const totalPrecip = precipitationValues.reduce((sum, value) => sum + value, 0);
-      summaryLines.push(
-        t.pdfSummaryTotalPrecipitation.replace('{value}', `${numberFormatter.format(totalPrecip)} ${precipUnit}`)
-      );
-    }
-
-    if (summaryLines.length > 0) {
-      ensureSpace(summaryLines.length * 5 + 10);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text(t.pdfSummaryTitle, marginLeft, yPos);
-      yPos += 7;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      summaryLines.forEach((line) => {
-        doc.text(line, marginLeft, yPos);
-        yPos += 5;
-      });
-      yPos += 4;
-    }
-
-    const hourlySeries = Array.isArray(selectedIntervalSeries) ? selectedIntervalSeries : [];
-    if (hourlySeries.length > 0) {
-      ensureSpace(25);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.text(t.pdfHourlyBreakdownTitle, marginLeft, yPos);
-      yPos += 7;
-
-      if (selectedIntervalDateLabel) {
-        const subtitle = t.pdfHourlyBreakdownSubtitle.replace('{date}', selectedIntervalDateLabel);
-        const lines = doc.splitTextToSize(subtitle, contentWidth);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        doc.text(lines, marginLeft, yPos);
-        yPos += lines.length * 5 + 4;
+    const drawRecords = (records, heading, units) => {
+      if (!Array.isArray(records) || records.length === 0) {
+        return;
       }
 
-      const hourColumnX = marginLeft + 2;
-      const tempHourColumnX = marginLeft + 55;
-      const windHourColumnX = marginLeft + 100;
-      const precipHourColumnX = marginLeft + 145;
-
-      const drawHourlyHeader = () => {
-        doc.setFillColor(subtleRow[0], subtleRow[1], subtleRow[2]);
-        doc.rect(marginLeft, yPos - 5, contentWidth, 8, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.text(t.hour, hourColumnX, yPos);
-        doc.text(`${t.temperature} (${temperatureUnit})`, tempHourColumnX, yPos);
-        doc.text(`${t.wind10m} (${windUnit})`, windHourColumnX, yPos);
-        doc.text(`${t.precipitation} (${precipUnit})`, precipHourColumnX, yPos);
-        yPos += 9;
-      };
-
-      drawHourlyHeader();
+      ensureSpace(lineHeight * 2);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(heading, marginLeft, y);
+      y += lineHeight;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
 
-      hourlySeries.forEach((entry, index) => {
-        ensureSpace(15);
-        if (index % 2 === 0) {
-          doc.setFillColor(250, 250, 252);
-          doc.rect(marginLeft, yPos - 4, contentWidth, 10, 'F');
+      records.forEach((record) => {
+        const blockLines = [];
+        const baseLineParts = [`${t.date ?? 'Date'}: ${formatDate(record.date)}`];
+        const hourStart = record.hour;
+        const hourEnd = record.hour_end;
+        if (hourStart !== null && hourStart !== undefined) {
+          let hourLabel = `${String(hourStart).padStart(2, '0')}h`;
+          if (hourEnd !== null && hourEnd !== undefined && hourEnd !== hourStart) {
+            hourLabel = `${hourLabel} -> ${String(hourEnd).padStart(2, '0')}h`;
+          }
+          baseLineParts.push(`${t.hour ?? 'Hour'}: ${hourLabel}`);
+        }
+  blockLines.push(baseLineParts.join(' - '));
+
+        const tempUnit = units.T2M ?? units.T2M_MAX ?? units.T2M_MIN ?? '°C';
+        const windUnit = units.WS10M ?? 'm/s';
+        const precipUnit = units.PRECTOTCORR ?? units.PRECTOT ?? 'mm';
+
+        blockLines.push([
+          `${t.temperature ?? 'Temperature'}: ${formatMetric(record.t2m, tempUnit)}`,
+          `${t.high ?? 'High'}: ${formatMetric(record.t2m_max, tempUnit)}`,
+          `${t.low ?? 'Low'}: ${formatMetric(record.t2m_min, tempUnit)}`,
+        ].join(' | '));
+
+        blockLines.push([
+          `${t.wind10m ?? 'Wind'}: ${formatMetric(record.ws10m, windUnit)}`,
+          `${t.precipitation ?? 'Precipitation'}: ${formatMetric(record.precip_mm, precipUnit)}`,
+        ].join(' | '));
+
+        if (record.flags) {
+          const activeFlags = Object.entries(record.flags)
+            .filter(([, value]) => Boolean(value))
+            .map(([key]) => key.replace(/_/g, ' '));
+          if (activeFlags.length > 0) {
+            blockLines.push(`Flags: ${activeFlags.join(', ')}`);
+          }
         }
 
-        const formatHour = (value) => {
-          if (value === null || value === undefined) {
-            return null;
+        if (record.accuracy) {
+          const accuracyParts = Object.entries(record.accuracy)
+            .filter(([, value]) => value !== null && value !== undefined)
+            .map(([key, value]) => `${key}: ${numberFormatter.format(value)}%`);
+          if (accuracyParts.length > 0) {
+            blockLines.push(`${t.accuracy ?? 'Accuracy'}: ${accuracyParts.join(' | ')}`);
           }
-          return `${String(value).padStart(2, '0')}h`;
-        };
+        }
 
-        const hourStartLabel = formatHour(entry.hour);
-        const hourEndLabel = formatHour(entry.hour_end);
-        const hourDisplay = hourStartLabel && hourEndLabel && hourEndLabel !== hourStartLabel
-          ? `${hourStartLabel} → ${hourEndLabel}`
-          : hourStartLabel ?? hourEndLabel ?? '-';
+        const blockHeight = blockLines.length * lineHeight + lineHeight / 2;
+        ensureSpace(blockHeight);
 
-        doc.text(hourDisplay, hourColumnX, yPos);
-
-        const tempText = entry.t2m !== null && entry.t2m !== undefined
-          ? `${numberFormatter.format(entry.t2m)} ${temperatureUnit}`
-          : '-';
-        doc.text(tempText, tempHourColumnX, yPos);
-
-        const windText = entry.ws10m !== null && entry.ws10m !== undefined
-          ? `${numberFormatter.format(entry.ws10m)} ${windUnit}`
-          : '-';
-        doc.text(windText, windHourColumnX, yPos);
-
-        const precipText = entry.precip_mm !== null && entry.precip_mm !== undefined
-          ? `${numberFormatter.format(entry.precip_mm)} ${precipUnit}`
-          : '-';
-        doc.text(precipText, precipHourColumnX, yPos);
-
-        yPos += 7;
+        blockLines.forEach((line) => {
+          doc.text(line, marginLeft, y);
+          y += lineHeight;
+        });
+        y += lineHeight / 2;
       });
-    }
+    };
+
+    sections.forEach((section, index) => {
+      if (!section || !section.summary) {
+        return;
+      }
+
+      if (index > 0) {
+        doc.addPage();
+        y = 20;
+      }
+
+      ensureSpace(lineHeight * 4);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text(section.title ?? t.pdfFilterLocation ?? 'Location', marginLeft, y);
+      y += lineHeight;
+
+      if (section.subtitle) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(10);
+        doc.text(section.subtitle, marginLeft, y);
+        y += lineHeight;
+      }
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+
+      if (section.coordinates) {
+        const lat = Number(section.coordinates.latitude ?? section.coordinates.lat);
+        const lon = Number(section.coordinates.longitude ?? section.coordinates.lon);
+        if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+          const coordText = (t.pdfCoordinates ?? 'Coordinates: {lat}, {lon}')
+            .replace('{lat}', lat.toFixed(4))
+            .replace('{lon}', lon.toFixed(4));
+          doc.text(coordText, marginLeft, y);
+          y += lineHeight;
+        }
+      }
+
+      if (section.summary.granularity) {
+        const granularityLabel = section.summary.granularity === 'hourly'
+          ? (t.hourlyData ?? 'Hourly data')
+          : (t.dailyData ?? 'Daily data');
+        doc.text(
+          `${t.pdfFilterGranularity ?? 'Granularity'}: ${granularityLabel}`,
+          marginLeft,
+          y
+        );
+        y += lineHeight;
+      }
+
+      if (section.summary.ai_prediction) {
+        const execution = section.summary.ai_prediction.execution_time
+          ? ` (${section.summary.ai_prediction.execution_time}s)`
+          : '';
+        doc.text(`${t.aiGeneratedPrediction ?? 'AI-generated prediction'}${execution}`, marginLeft, y);
+        y += lineHeight;
+      }
+
+      y += lineHeight / 2;
+
+      const units = section.summary.meta?.units ?? {};
+      drawRecords(section.summary.data, t.pdfMetricsTitle ?? 'Weather metrics', units);
+
+      if (Array.isArray(section.summary.series) && section.summary.series.length > 0) {
+        drawRecords(section.summary.series, t.pdfHourlyBreakdownTitle ?? 'Hourly breakdown', units);
+      }
+
+      y += lineHeight / 2;
+    });
+
+    ensureSpace(lineHeight * 2);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    const sourceLabel = sections.some((section) => section.summary?.ai_prediction)
+      ? t.pdfDataSourceAi ?? 'NASA POWER · AI-enhanced'
+      : t.pdfDataSourceStandard ?? 'NASA POWER';
+    doc.text(t.pdfFooterSignature ?? 'Generated by Vanguarda Cósmica Weather System', marginLeft, y);
+    y += lineHeight;
+    doc.text((t.pdfFooterDataSource ?? 'Data source: {source}').replace('{source}', sourceLabel), marginLeft, y);
 
     const fileDate = new Date().toISOString().split('T')[0];
-    const sourceLabel = weatherResult.ai_prediction ? t.pdfDataSourceAi : t.pdfDataSourceStandard;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
-    doc.text(t.pdfFooterSignature, pageWidth / 2, 285, { align: 'center' });
-    doc.text(t.pdfFooterDataSource.replace('{source}', sourceLabel), pageWidth / 2, 289, { align: 'center' });
-
     doc.save(`weather-forecast-${fileDate}.pdf`);
   } catch (error) {
     console.error('Error generating PDF:', error);
-    alert(t.pdfError);
+    alert(t.pdfError ?? 'Error generating PDF. Please try again.');
   }
 }
 
@@ -915,11 +636,11 @@ export default function App() {
           ? NUMBER_FORMATTER.format(rawValue)
           : context.formattedValue;
 
-        let line = '';
+        const lines = [];
         if (datasetLabel) {
-          line = `${datasetLabel}: ${formattedValue}${unitLabel ? ` ${unitLabel}` : ''}`;
+          lines.push(`${datasetLabel}: ${formattedValue}${unitLabel ? ` ${unitLabel}` : ''}`);
         } else if (formattedValue) {
-          line = `${formattedValue}${unitLabel ? ` ${unitLabel}` : ''}`;
+          lines.push(`${formattedValue}${unitLabel ? ` ${unitLabel}` : ''}`);
         }
 
         const accuracyValues = context.dataset?.accuracyValues;
@@ -930,11 +651,10 @@ export default function App() {
         if (accuracy !== null && accuracy !== undefined) {
           const formattedAccuracy = NUMBER_FORMATTER.format(accuracy);
           const accuracyLabel = t.accuracy ?? 'Accuracy';
-          const separator = line ? ' • ' : '';
-          line = `${line}${separator}${accuracyLabel}: ${formattedAccuracy}%`;
+          lines.push(`${accuracyLabel}: ${formattedAccuracy}%`);
         }
 
-        return line;
+        return lines.length > 0 ? lines : '';
       },
     };
 
@@ -2123,7 +1843,49 @@ export default function App() {
   }
 
   const handlePdfDownload = useCallback(() => {
-    if (!weatherResult) {
+    const sections = [];
+
+    if (isMultiLocationActive) {
+      multipleWeatherResults
+        .filter((entry) => entry.status === 'success' && entry.weatherData)
+        .forEach((entry) => {
+          const geocodeData = entry.geocode ?? {};
+          const title = entry.description
+            ?? geocodeData?.formatted_address
+            ?? geocodeData?.query
+            ?? t.pdfFilterLocation;
+          const subtitle = geocodeData?.formatted_address && geocodeData.formatted_address !== title
+            ? geocodeData.formatted_address
+            : null;
+
+          sections.push({
+            title,
+            subtitle,
+            coordinates: geocodeData,
+            summary: entry.weatherData,
+          });
+        });
+    }
+
+    if (sections.length === 0 && weatherResult) {
+      const resolvedLocation = weatherPanelLocationLabel
+        ?? geocodeResult?.formatted_address
+        ?? geocodeResult?.query
+        ?? t.pdfFilterLocation;
+      const subtitle = geocodeResult?.formatted_address && geocodeResult.formatted_address !== resolvedLocation
+        ? geocodeResult.formatted_address
+        : null;
+
+      sections.push({
+        title: resolvedLocation,
+        subtitle,
+        coordinates: geocodeResult,
+        summary: weatherResult,
+      });
+    }
+
+    if (sections.length === 0) {
+      alert(t.pdfError ?? 'Error generating PDF. Please try again.');
       return;
     }
 
@@ -2144,7 +1906,8 @@ export default function App() {
       filterItems.push({ label: t.pdfFilterPeriod, value: rangeLabel });
     }
 
-    const selectedDates = Array.isArray(weatherResult.selectedDates) ? weatherResult.selectedDates : null;
+    const referenceSummary = weatherResult ?? sections[0]?.summary ?? null;
+    const selectedDates = Array.isArray(referenceSummary?.selectedDates) ? referenceSummary.selectedDates : null;
     if (selectedDates && selectedDates.length > 0) {
       const formattedDates = selectedDates
         .map((date) => {
@@ -2163,7 +1926,7 @@ export default function App() {
         const start = weatherHourStart?.trim();
         const end = weatherHourEnd?.trim();
         if (start && end) {
-          return `${String(start).padStart(2, '0')}h → ${String(end).padStart(2, '0')}h`;
+          return `${String(start).padStart(2, '0')}h -> ${String(end).padStart(2, '0')}h`;
         }
       } else {
         const single = weatherHourStart?.trim();
@@ -2178,8 +1941,8 @@ export default function App() {
       filterItems.push({ label: t.pdfFilterHours, value: hourLabel });
     }
 
-    if (weatherResult.granularity) {
-      const granularityLabel = weatherResult.granularity === 'hourly' ? t.hourlyData : t.dailyData;
+    if (referenceSummary?.granularity) {
+      const granularityLabel = referenceSummary.granularity === 'hourly' ? t.hourlyData : t.dailyData;
       filterItems.push({ label: t.pdfFilterGranularity, value: granularityLabel });
     }
 
@@ -2187,31 +1950,21 @@ export default function App() {
       filterItems.push({ label: t.pdfFilterChartDay, value: selectedIntervalDateLabel });
     }
 
-    const units = weatherResult?.meta?.units ?? {};
-
     generatePDF({
-      weatherResult,
-      geocodeResult,
+      sections,
       t,
       locale,
-      filters: {
-        items: filterItems,
-        locationName: locationLabel,
-      },
-      insights: displayInsights,
-      selectedIntervalSeries: hasIntervalSeries ? selectedIntervalSeries : null,
-      selectedIntervalDateLabel: hasIntervalSeries ? selectedIntervalDateLabel : null,
-      units,
+      filters: filterItems,
     });
   }, [
     DATE_FORMATTER,
-    displayInsights,
     geocodeResult,
     hasIntervalSeries,
+    isMultiLocationActive,
     locale,
+    multipleWeatherResults,
     requestedRangeLabel,
     selectedIntervalDateLabel,
-    selectedIntervalSeries,
     t,
     weatherHourEnd,
     weatherHourStart,

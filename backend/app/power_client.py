@@ -365,7 +365,7 @@ async def fetch_power_weather(
     
     # Use AI if needed
     if use_ai_fallback and can_use_ai:
-        from .ai_predictor import predict_day
+        from .ai_predictor import predict_day, chance_within_tau_from_rmse, DEFAULT_TOLERANCES
 
         try:
             # For single date or date range, predict the start date
@@ -380,29 +380,24 @@ async def fetch_power_weather(
             raise PowerAPIError("Erro ao gerar previsão com IA.") from exc
         
         # Build record from AI prediction
-        # Calculate accuracy scores based on RMSE
+        # Calculate accuracy scores based on RMSE usando as funções do ai_predictor
         chosen = ai_results["ai_models"]["chosen"]
         
-        # Calcular acurácia (100 - RMSE normalizado como porcentagem)
-        # Usamos RMSE para calcular uma "confiança" aproximada
+        # Calcular acurácia usando as tolerâncias padrão configuradas
         accuracy_scores = {}
         for var, info in chosen.items():
-            if "RMSE" in info:
-                # Converter RMSE em porcentagem de acurácia (quanto menor RMSE, maior acurácia)
-                # Fórmula simplificada: assumir que RMSE < 5 é excelente
+            # Para precipitação, usa F1 diretamente
+            if var.upper().startswith("PREC") and "F1" in info:
+                accuracy_scores[var] = round(info["F1"] * 100.0, 1)
+            elif "RMSE" in info:
+                # Para variáveis contínuas, usa chance_within_tau_from_rmse
                 rmse = info["RMSE"]
-                # Acurácia = 100 - (RMSE * fator)
-                # Para temperatura: RMSE de 2°C = ~95% accuracy
-                if var.startswith("T2M"):
-                    accuracy = max(0, min(100, 100 - (rmse * 2.5)))
-                elif var == "WS10M":
-                    accuracy = max(0, min(100, 100 - (rmse * 5)))
-                elif var == "PRECTOTCORR":
-                    accuracy = max(0, min(100, 100 - (rmse * 3)))
-                else:
-                    accuracy = max(0, min(100, 100 - (rmse * 4)))
+                tolerance_cfg = DEFAULT_TOLERANCES.get(var, {})
+                tau = tolerance_cfg.get("tau", 1.0)  # Default ±1 se não especificado
                 
-                accuracy_scores[var] = round(accuracy, 1)
+                # Calcula a probabilidade de estar dentro da tolerância
+                probability = chance_within_tau_from_rmse(rmse, tau)
+                accuracy_scores[var] = round(probability * 100.0, 1)
         
         # Determine flags from predictions
         t2m = chosen.get("T2M", {}).get("value", 25.0)
@@ -534,7 +529,7 @@ async def fetch_power_weather(
         if not time_keys:
             # No hourly data available - try AI fallback with multiple hourly predictions
             if can_use_ai and (is_recent_or_future or normal_data_failed):
-                from .ai_predictor import predict_day, predict_multiple_days
+                from .ai_predictor import predict_day, predict_multiple_days, chance_within_tau_from_rmse, DEFAULT_TOLERANCES
                 
                 # Generate list of dates to predict
                 current = start_date
@@ -572,20 +567,20 @@ async def fetch_power_weather(
                     pred_date_str = pred_result["input"]["date"]
                     chosen = pred_result["ai_models"]["chosen"]
                     
-                    # Calculate accuracy
+                    # Calculate accuracy usando as funções do ai_predictor
                     accuracy_scores = {}
                     for var, info in chosen.items():
-                        if "RMSE" in info:
+                        # Para precipitação, usa F1 diretamente
+                        if var.upper().startswith("PREC") and "F1" in info:
+                            accuracy_scores[var] = round(info["F1"] * 100.0, 1)
+                        elif "RMSE" in info:
+                            # Para variáveis contínuas, usa chance_within_tau_from_rmse
                             rmse = info["RMSE"]
-                            if var.startswith("T2M"):
-                                accuracy = max(0, min(100, 100 - (rmse * 2.5)))
-                            elif var == "WS10M":
-                                accuracy = max(0, min(100, 100 - (rmse * 5)))
-                            elif var == "PRECTOTCORR":
-                                accuracy = max(0, min(100, 100 - (rmse * 3)))
-                            else:
-                                accuracy = max(0, min(100, 100 - (rmse * 4)))
-                            accuracy_scores[var] = round(accuracy, 1)
+                            tolerance_cfg = DEFAULT_TOLERANCES.get(var, {})
+                            tau = tolerance_cfg.get("tau", 1.0)
+                            
+                            probability = chance_within_tau_from_rmse(rmse, tau)
+                            accuracy_scores[var] = round(probability * 100.0, 1)
                     
                     t2m_base = chosen.get("T2M", {}).get("value", 25.0)
                     precip_base = chosen.get("PRECTOTCORR", {}).get("value", 0.0)
@@ -682,7 +677,7 @@ async def fetch_power_weather(
         if not range_records:
             # Try AI fallback for recent/future dates - generate predictions for each point
             if can_use_ai and is_recent_or_future:
-                from .ai_predictor import predict_day, predict_multiple_days
+                from .ai_predictor import predict_day, predict_multiple_days, chance_within_tau_from_rmse, DEFAULT_TOLERANCES
                 
                 # Generate list of dates to predict
                 current = start_date
@@ -721,20 +716,20 @@ async def fetch_power_weather(
                     pred_date = datetime.strptime(pred_date_str, "%Y-%m-%d").date()
                     chosen = pred_result["ai_models"]["chosen"]
                     
-                    # Calculate accuracy
+                    # Calculate accuracy usando as funções do ai_predictor
                     accuracy_scores = {}
                     for var, info in chosen.items():
-                        if "RMSE" in info:
+                        # Para precipitação, usa F1 diretamente
+                        if var.upper().startswith("PREC") and "F1" in info:
+                            accuracy_scores[var] = round(info["F1"] * 100.0, 1)
+                        elif "RMSE" in info:
+                            # Para variáveis contínuas, usa chance_within_tau_from_rmse
                             rmse = info["RMSE"]
-                            if var.startswith("T2M"):
-                                accuracy = max(0, min(100, 100 - (rmse * 2.5)))
-                            elif var == "WS10M":
-                                accuracy = max(0, min(100, 100 - (rmse * 5)))
-                            elif var == "PRECTOTCORR":
-                                accuracy = max(0, min(100, 100 - (rmse * 3)))
-                            else:
-                                accuracy = max(0, min(100, 100 - (rmse * 4)))
-                            accuracy_scores[var] = round(accuracy, 1)
+                            tolerance_cfg = DEFAULT_TOLERANCES.get(var, {})
+                            tau = tolerance_cfg.get("tau", 1.0)
+                            
+                            probability = chance_within_tau_from_rmse(rmse, tau)
+                            accuracy_scores[var] = round(probability * 100.0, 1)
                     
                     t2m = chosen.get("T2M", {}).get("value", 25.0)
                     precip = chosen.get("PRECTOTCORR", {}).get("value", 0.0)

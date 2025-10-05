@@ -2,6 +2,16 @@
 """
 RAIN - AI Weather Predictor for future dates
 Predicts daily weather using 3 AI models: SARIMAX, Gradient Boosting, Random Forest
+
+Notas:
+- Mantém o mesmo formato de INPUT/OUTPUT.
+- Melhora a verificação de acurácia:
+  * Precipitação: otimiza F1 no conjunto de validação (threshold ótimo) e escolhe modelo por F1.
+  * Contínuas (temperatura/vento): mantém MAE/RMSE.
+- Adiciona helpers para "servir acurácia em %", sem alterar o JSON:
+  * chance_within_tau_from_rmse(rmse, tau)
+  * format_accuracy_percent_for_var(result, var, tau, unit)
+  * format_accuracy_bundle(result, tolerances)
 """
 
 import asyncio
@@ -18,7 +28,9 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 import warnings
 warnings.filterwarnings("ignore")
 
+# =========================
 # Configuration
+# =========================
 FILL_VALUE = -999.0
 YEARS_BACK_DEFAULT = 6
 LAGS = (1, 3, 7, 14, 21, 28)
@@ -27,10 +39,24 @@ TIMEOUT = 25
 RETRY = 3
 RETRY_BACKOFF = 2.0
 
-# Limite padrão apenas como referência para fallback; F1 agora é otimizado em validação
+# Precipitação: valor default apenas como âncora; F1 é otimizado em validação
 PRECIP_DEFAULT_THRESHOLD_MM = 1.0
 
+# Tolerâncias padrão para "acurácia em %"
+# (Use na camada de apresentação; não altera o retorno das funções de previsão)
+DEFAULT_TOLERANCES = {
+    "T2M": {"tau": 1.0, "unit": "°C"},    # Temperatura média (±1 °C)
+    "T2M_MAX": {"tau": 1.5, "unit": "°C"},
+    "T2M_MIN": {"tau": 1.5, "unit": "°C"},
+    "WS10M": {"tau": 1.5, "unit": " m/s"}, # Vento (±1,5 m/s)
+    # Para precipitação contínua (mm), preferimos F1 na ocorrência (>=1mm).
+    # Se quiser percentual para mm, defina uma tolerância, ex.: {"tau": 3.0, "unit": " mm"}
+}
 
+
+# =========================
+# Utils
+# =========================
 def _coords_seed(lat: float, lon: float) -> int:
     """Generate a deterministic seed based on coordinates."""
     lat_component = int(round((lat + 90.0) * 1000))
@@ -49,7 +75,6 @@ def _generate_synthetic_history(
     variables: List[str],
 ) -> pd.DataFrame:
     """Create a synthetic daily weather history when NASA POWER is unavailable."""
-
     start_dt = datetime.strptime(start_date, "%Y%m%d").date()
     end_dt = datetime.strptime(end_date, "%Y%m%d").date()
     if start_dt > end_dt:
@@ -107,7 +132,6 @@ def _build_future_feature_row(
     target_date,
 ) -> pd.DataFrame:
     """Prepare feature row for the next prediction step without NaNs."""
-
     if history.empty:
         raise RuntimeError("History dataframe is empty; cannot build future features.")
 
@@ -153,6 +177,9 @@ def _build_future_feature_row(
     return pd.DataFrame([row])
 
 
+# =========================
+# Data fetching (NASA POWER)
+# =========================
 async def _fetch_power_daily_async(
     lat: float, 
     lon: float, 
@@ -251,6 +278,9 @@ async def _fetch_year_chunks_async(
     return out
 
 
+# =========================
+# Feature engineering
+# =========================
 def _add_time_features_daily(df: pd.DataFrame) -> pd.DataFrame:
     """Add temporal features (day of year, sin/cos encoding)"""
     out = df.copy()
@@ -284,6 +314,9 @@ def _make_supervised_daily(df: pd.DataFrame, target_vars: List[str]) -> pd.DataF
     return out.dropna()
 
 
+# =========================
+# Models & evaluation
+# =========================
 def _fit_sarimax_daily(y_train: pd.Series):
     """Fit SARIMAX model with weekly seasonality"""
     order = (1, 0, 1)
@@ -308,14 +341,11 @@ def _best_f1_threshold(y_true_mm: np.ndarray, y_pred_score: np.ndarray) -> float
     if y_true_mm.size == 0 or y_pred_score.size == 0:
         return float(PRECIP_DEFAULT_THRESHOLD_MM)
 
-    # Classe verdadeira binária para referência
     true_bin_ref = (y_true_mm >= PRECIP_DEFAULT_THRESHOLD_MM).astype(int)
 
-    # Se não há variação (tudo zero de ambos), qualquer limiar serve
     if true_bin_ref.sum() == 0 and np.all(y_pred_score <= 0):
         return float(PRECIP_DEFAULT_THRESHOLD_MM)
 
-    # Grelha de limiares: quantis do score + âncoras
     qs = np.unique(np.quantile(y_pred_score, np.linspace(0, 1, 51)))
     grid = np.unique(np.concatenate(([0.0, PRECIP_DEFAULT_THRESHOLD_MM], qs)))
 
@@ -358,11 +388,10 @@ def _eval_forecast(var_name: str, y_true: np.ndarray, y_pred: np.ndarray) -> dic
         "RMSE": float(mean_squared_error(arr_true, arr_pred, squared=False)),
     }
 
-    # F1 para precipitação: otimiza limiar em validação
+    # F1 para precipitação (ocorrência): otimiza limiar em validação
     if var_name.upper().startswith("PREC"):
-        # threshold ótimo baseado no score contínuo previsto (mm)
         tau = _best_f1_threshold(arr_true, arr_pred)
-        true_bin = (arr_true >= PRECIP_DEFAULT_THRESHOLD_MM).astype(int)  # definição de "chover" no rótulo
+        true_bin = (arr_true >= PRECIP_DEFAULT_THRESHOLD_MM).astype(int)
         pred_bin = (arr_pred >= tau).astype(int)
         if pred_bin.any() or true_bin.any():
             metrics["F1"] = float(f1_score(true_bin, pred_bin, zero_division=0))
@@ -371,6 +400,9 @@ def _eval_forecast(var_name: str, y_true: np.ndarray, y_pred: np.ndarray) -> dic
     return metrics
 
 
+# =========================
+# Public API
+# =========================
 async def predict_day(
     lat: float, 
     lon: float, 
@@ -497,9 +529,8 @@ async def predict_day(
             predictions[v]["RandomForest"] = float(dfi[v].iloc[-1]) if len(dfi[v]) > 0 else 0.0
 
         # ============ Auto model selection ============
-        # Mantém o mesmo formato de saída; apenas muda a lógica de seleção para precipitação.
+        # Precipitação: seleciona pelo maior F1 (empate: menor RMSE)
         if v.upper().startswith("PREC"):
-            # Seleciona pelo MAIOR F1; em empate, menor RMSE
             def _key_prec(m):
                 f1 = results[v][m].get("F1", -1.0)
                 rmse = results[v][m].get("RMSE", float("inf"))
@@ -573,3 +604,70 @@ async def predict_multiple_days(
             successful.append(result)
     
     return successful
+
+
+# =========================
+# Helpers p/ "servir acurácia em %"
+# (não alteram o JSON retornado; use-os na UI)
+# =========================
+def chance_within_tau_from_rmse(rmse: float, tau: float) -> float:
+    """
+    Converte RMSE (σ) em probabilidade de ficar dentro de ±tau, assumindo erro ~ N(0, σ²).
+    Retorna valor em [0..1].
+    """
+    if rmse is None or not np.isfinite(rmse) or rmse <= 0:
+        return 1.0
+    z = tau / (math.sqrt(2.0) * rmse)
+    return math.erf(z)
+
+
+def format_accuracy_percent_for_var(result: dict, var: str, tau: float = None, unit: str = "") -> str:
+    """
+    Gera texto "Acurácia (±tau{unit}): X%" a partir do RMSE do modelo escolhido.
+    Para variáveis de precipitação (PRECTOT/PRECTOTCORR), usa F1 (%).
+    Não modifica o `result` original.
+    """
+    chosen = result.get("ai_models", {}).get("chosen", {})
+    if var not in chosen:
+        return ""
+
+    entry = chosen[var]
+    # Para precipitação (classe rara), preferimos F1 diretamente
+    if var.upper().startswith("PREC") and "F1" in entry:
+        return f"Acurácia (ocorrência de chuva): {entry['F1'] * 100.0:.1f}% (F1)"
+
+    # Contínuas: usa RMSE -> chance por tolerância
+    rmse = entry.get("RMSE", None)
+
+    # Define tolerância padrão se não foi passada
+    if tau is None:
+        cfg = DEFAULT_TOLERANCES.get(var, None)
+        if cfg:
+            tau = cfg["tau"]; unit = cfg["unit"]
+        else:
+            # fallback razoável
+            tau = 1.0
+            if not unit:
+                unit = ""
+
+    p = chance_within_tau_from_rmse(rmse, tau) * 100.0
+    return f"Acurácia (±{tau}{unit}): {p:.1f}%"
+
+
+def format_accuracy_bundle(result: dict, tolerances: Dict[str, Dict[str, float]] = None) -> Dict[str, str]:
+    """
+    Retorna um dicionário {var: "Acurácia ... %"} para várias variáveis,
+    usando tolerâncias fornecidas ou DEFAULT_TOLERANCES.
+    Não altera o JSON de saída das funções de previsão.
+    """
+    out = {}
+    chosen = result.get("ai_models", {}).get("chosen", {})
+    if tolerances is None:
+        tolerances = DEFAULT_TOLERANCES
+
+    for var in chosen.keys():
+        cfg = tolerances.get(var, {})
+        tau = cfg.get("tau", None)
+        unit = cfg.get("unit", "")
+        out[var] = format_accuracy_percent_for_var(result, var, tau, unit)
+    return out
