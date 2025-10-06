@@ -94,11 +94,11 @@ Each variable renders a **purple badge** next to the metric:
 ## ⚙️ Backend Setup
 
 ```bash
+cp .env.example .env  # configure GOOGLE_MAPS_API_KEY and FRONTEND_ALLOWED_ORIGINS
 cd backend
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-export GOOGLE_MAPS_API_KEY="your-google-key"
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -107,8 +107,10 @@ uvicorn app.main:app --reload --port 8000
 ```bash
 cd frontend
 npm install
-echo "VITE_GOOGLE_MAPS_API_KEY=your-google-key" > .env.local
-echo "VITE_API_BASE=http://localhost:8000" >> .env.local
+cat <<'EOF' > .env.local
+VITE_GOOGLE_MAPS_API_KEY=your-google-key
+VITE_API_BASE=http://localhost:8000
+EOF
 npm run dev
 ```
 
@@ -118,12 +120,18 @@ Open `http://localhost:5173`.
 
 > GitHub Pages serves only static files. Host the FastAPI backend elsewhere (Fly.io, Railway, Render, VPS, etc.) and expose it through `VITE_API_BASE`.
 
-1. Configure a production API base URL. Example:
+1. Configure HTTPS URLs in your `.env` (backend) and `frontend/.env.production` (served build). Example:
 
   ```bash
   # frontend/.env.production
   VITE_API_BASE=https://weather-api.example.com
   VITE_GOOGLE_MAPS_API_KEY=your-google-key
+  ```
+
+  ```bash
+  # .env
+  GOOGLE_MAPS_API_KEY=your-google-key
+  FRONTEND_ALLOWED_ORIGINS=https://your-user.github.io/vanguarda-cosmica
   ```
 
 2. In the repository **Settings → Pages**, select **Source: GitHub Actions**. This enables deployments produced by the workflow.

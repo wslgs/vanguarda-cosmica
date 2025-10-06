@@ -123,9 +123,17 @@ app = FastAPI(
     ),
 )
 
+frontend_origins_raw = os.getenv("FRONTEND_ALLOWED_ORIGINS", "*")
+if frontend_origins_raw.strip() == "*":
+    allowed_origins = ["*"]
+else:
+    allowed_origins = [origin.strip() for origin in frontend_origins_raw.split(",") if origin.strip()]
+    if not allowed_origins:
+        allowed_origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
