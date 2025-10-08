@@ -430,13 +430,13 @@ async def fetch_power_weather(
             )
             
             meta = {
-                "source": "AI Prediction",
-                "location": {
-                    "latitude": latitude,
-                    "longitude": longitude
-                },
+                "service": "AI Prediction",
+                "version": "1.0",
+                "time_standard": "LST",
+                "available_start": start,
+                "available_end": end,
                 "units": {
-                    "T2M": "°C",
+                    "T2M": "C",
                     "WS10M": "m/s",
                     "PRECTOTCORR": "mm"
                 }
@@ -473,15 +473,15 @@ async def fetch_power_weather(
             )
             
             meta = {
-                "source": "AI Prediction",
-                "location": {
-                    "latitude": latitude,
-                    "longitude": longitude
-                },
+                "service": "AI Prediction",
+                "version": "1.0",
+                "time_standard": "LST",
+                "available_start": start,
+                "available_end": end,
                 "units": {
-                    "T2M": "°C",
-                    "T2M_MAX": "°C",
-                    "T2M_MIN": "°C",
+                    "T2M": "C",
+                    "T2M_MAX": "C",
+                    "T2M_MIN": "C",
                     "WS10M": "m/s",
                     "PRECTOTCORR": "mm"
                 }
@@ -617,9 +617,12 @@ async def fetch_power_weather(
                         ai_hourly_records.append(ai_record)
                 
                 meta = {
-                    "source": "AI Prediction",
-                    "location": {"latitude": latitude, "longitude": longitude},
-                    "units": {"T2M": "°C", "WS10M": "m/s", "PRECTOTCORR": "mm"}
+                    "service": "AI Prediction",
+                    "version": "1.0",
+                    "time_standard": "LST",
+                    "available_start": start,
+                    "available_end": end,
+                    "units": {"T2M": "C", "WS10M": "m/s", "PRECTOTCORR": "mm"}
                 }
                 
                 # Aggregate AI prediction info from all predictions
@@ -762,9 +765,12 @@ async def fetch_power_weather(
                         ai_hourly_records.append(ai_record)
                 
                 meta = {
-                    "source": "AI Prediction",
-                    "location": {"latitude": latitude, "longitude": longitude},
-                    "units": {"T2M": "°C", "WS10M": "m/s", "PRECTOTCORR": "mm"}
+                    "service": "AI Prediction",
+                    "version": "1.0",
+                    "time_standard": "LST",
+                    "available_start": start,
+                    "available_end": end,
+                    "units": {"T2M": "C", "WS10M": "m/s", "PRECTOTCORR": "mm"}
                 }
                 
                 # Aggregate AI prediction info from all predictions

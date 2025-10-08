@@ -273,7 +273,11 @@ async def _fetch_year_chunks_async(
         frames.append(dfy)
         cur = datetime(y + 1, 1, 1).date()
     
-    out = pd.concat(frames).sort_index()
+    # Concatenate and ensure index is consistent datetime type
+    out = pd.concat(frames)
+    # Convert all index values to pd.Timestamp for consistent comparison
+    out.index = pd.DatetimeIndex(out.index)
+    out = out.sort_index()
     out = out[~out.index.duplicated(keep="last")]
     return out
 
