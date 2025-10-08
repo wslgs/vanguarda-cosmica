@@ -437,6 +437,12 @@ export default function App() {
   }), [locale]);
   const NUMBER_FORMATTER = useMemo(() => new Intl.NumberFormat(locale === 'pt' ? 'pt-BR' : 'en-US', { maximumFractionDigits: 1 }), [locale]);
   
+  // Update document title and lang when locale changes
+  useEffect(() => {
+    document.documentElement.lang = locale === 'pt' ? 'pt-BR' : 'en';
+    document.title = locale === 'pt' ? 'Rain - Previsão do Tempo AI' : 'Rain - AI Weather Forecast';
+  }, [locale]);
+  
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsVisible, setSuggestionsVisible] = useState(false);
@@ -500,6 +506,32 @@ export default function App() {
       });
     };
   }, [weatherMode, result, weatherResult]);
+
+  // Control background blur effects based on user actions
+  useEffect(() => {
+    const body = document.body;
+    
+    // Reset all states
+    body.classList.remove('searching', 'location-selected', 'weather-loading', 'weather-ready');
+    
+    // Apply appropriate state
+    if (loading) {
+      body.classList.add('searching');
+    } else if (result || selectedLocations.length > 0) {
+      body.classList.add('location-selected');
+    }
+    
+    const isMultiLoading = multipleWeatherResults.some(r => r.status === 'loading');
+    if (weatherLoading || isMultiLoading) {
+      body.classList.add('weather-loading');
+    } else if (weatherResult?.series?.length > 0 || multipleWeatherResults.some(r => r.status === 'success')) {
+      body.classList.add('weather-ready');
+    }
+    
+    return () => {
+      body.classList.remove('searching', 'location-selected', 'weather-loading', 'weather-ready');
+    };
+  }, [loading, result, selectedLocations, weatherLoading, weatherResult, multipleWeatherResults]);
 
   const mapSrc = useMemo(() => buildMapSrc(result), [result]);
   const hasWeatherContext = useMemo(() => Boolean(result || selectedLocations.length > 0), [result, selectedLocations]);
@@ -690,88 +722,86 @@ export default function App() {
     };
 
     return {
-      temperature: {
-        ...baseOptions,
-        scales: {
-          ...baseOptions.scales,
-          y: {
-            grid: {
-              color: 'rgba(124, 241, 255, 0.08)',
+        temperature: {
+          ...baseOptions,
+          scales: {
+            ...baseOptions.scales,
+            y: {
+              grid: {
+                color: 'rgba(124, 241, 255, 0.08)',
+              },
+              ticks: {
+                color: 'rgba(224, 226, 255, 0.85)',
+              },
+              title: {
+                display: true,
+                text: t.chartTemperatureAxis ? t.chartTemperatureAxis.replace('{unit}', tempUnit) : `Temperature (${tempUnit})`,
+                color: 'rgba(224, 226, 255, 0.8)',
+              },
             },
-            ticks: {
-              color: 'rgba(224, 226, 255, 0.85)',
-            },
-            title: {
-              display: true,
-              text: `Temperature (${tempUnit})`,
-              color: 'rgba(224, 226, 255, 0.8)',
+          },
+          plugins: {
+            ...baseOptions.plugins,
+            legend: {
+              ...baseOptions.plugins.legend,
+              display: false,
             },
           },
         },
-        plugins: {
-          ...baseOptions.plugins,
-          legend: {
-            ...baseOptions.plugins.legend,
-            display: false,
-          },
-        },
-      },
-      wind: {
-        ...baseOptions,
-        scales: {
-          ...baseOptions.scales,
-          y: {
-            grid: {
-              color: 'rgba(169, 107, 255, 0.15)',
-            },
-            ticks: {
-              color: 'rgba(224, 226, 255, 0.85)',
-            },
-            title: {
-              display: true,
-              text: `Wind (${windUnit})`,
-              color: 'rgba(224, 226, 255, 0.8)',
+        wind: {
+          ...baseOptions,
+          scales: {
+            ...baseOptions.scales,
+            y: {
+              grid: {
+                color: 'rgba(169, 107, 255, 0.15)',
+              },
+              ticks: {
+                color: 'rgba(224, 226, 255, 0.85)',
+              },
+              title: {
+                display: true,
+                text: t.chartWindAxis ? t.chartWindAxis.replace('{unit}', windUnit) : `Wind (${windUnit})`,
+                color: 'rgba(224, 226, 255, 0.8)',
+              },
             },
           },
-        },
-        plugins: {
-          ...baseOptions.plugins,
-          legend: {
-            ...baseOptions.plugins.legend,
-            display: false,
-          },
-        },
-      },
-      precipitation: {
-        ...baseOptions,
-        scales: {
-          ...baseOptions.scales,
-          y: {
-            grid: {
-              color: 'rgba(64, 21, 136, 0.2)',
-            },
-            ticks: {
-              color: 'rgba(184, 191, 255, 0.8)',
-            },
-            title: {
-              display: true,
-              text: `Precipitation (${precipUnit})`,
-              color: 'rgba(184, 191, 255, 0.85)',
+          plugins: {
+            ...baseOptions.plugins,
+            legend: {
+              ...baseOptions.plugins.legend,
+              display: false,
             },
           },
         },
-        plugins: {
-          ...baseOptions.plugins,
-          legend: {
-            ...baseOptions.plugins.legend,
-            display: false,
+        precipitation: {
+          ...baseOptions,
+          scales: {
+            ...baseOptions.scales,
+            y: {
+              grid: {
+                color: 'rgba(64, 21, 136, 0.2)',
+              },
+              ticks: {
+                color: 'rgba(184, 191, 255, 0.8)',
+              },
+              title: {
+                display: true,
+                text: t.chartPrecipitationAxis ? t.chartPrecipitationAxis.replace('{unit}', precipUnit) : `Precipitation (${precipUnit})`,
+                color: 'rgba(184, 191, 255, 0.85)',
+              },
+            },
+          },
+          plugins: {
+            ...baseOptions.plugins,
+            legend: {
+              ...baseOptions.plugins.legend,
+              display: false,
+            },
           },
         },
-      },
-    };
-  }, [NUMBER_FORMATTER, hasIntervalSeries, intervalChartData, precipUnit, selectedIntervalSeries, t, tempUnit, windUnit]);
-
-  const selectedIntervalDateLabel = useMemo(() => {
+      };
+    }, [NUMBER_FORMATTER, hasIntervalSeries, intervalChartData, precipUnit, selectedIntervalSeries, t, tempUnit, windUnit]);  const selectedIntervalDateLabel = useMemo(() => {
     if (!selectedIntervalDate) {
       return null;
     }
@@ -2086,7 +2116,7 @@ export default function App() {
                 type="button"
                 className="repeat-close"
                 onClick={closeCalendar}
-                aria-label="Close date selection"
+                aria-label={t.closeDateSelection}
               >
                 ×
               </button>
@@ -2097,28 +2127,29 @@ export default function App() {
                   type="button"
                   className="mini-cal-nav"
                   onClick={() => shiftMonth(-1)}
-                  aria-label="Previous month"
+                  aria-label={t.previousMonth}
                 >
                   ‹
                 </button>
                 {(() => {
                   const d = toUTCDate(repeatMonthCursor);
-                  const month = d.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+                  const monthIndex = d.getUTCMonth();
+                  const month = t.months ? t.months[monthIndex] : d.toLocaleString(locale === 'pt' ? 'pt-BR' : 'en-US', { month: 'long', timeZone: 'UTC' });
                   return <h4 className="mini-cal-title">{month} {d.getUTCFullYear()}</h4>;
                 })()}
                 <button
                   type="button"
                   className="mini-cal-nav"
                   onClick={() => shiftMonth(1)}
-                  aria-label="Next month"
+                  aria-label={t.nextMonth}
                 >
                   ›
                 </button>
               </div>
-              <table className="mini-cal" role="grid" aria-label={calendarMode === 'single' ? 'Single-date calendar' : 'Multi-date calendar'}>
+              <table className="mini-cal" role="grid" aria-label={calendarMode === 'single' ? t.singleDateCalendar : t.multiDateCalendar}>
                 <thead>
                   <tr>
-                    {['S','M','T','W','T','F','S'].map((wd, idx) => (
+                    {(t.weekdaysShort || ['S','M','T','W','T','F','S']).map((wd, idx) => (
                       <th key={`weekday-${idx}`} scope="col">{wd}</th>
                     ))}
                   </tr>
@@ -2161,13 +2192,13 @@ export default function App() {
               </table>
               {calendarMode === 'repeat' && (
                 <div className="repeat-summary repeat-summary--dialog">
-                  <span className="repeat-summary__label">Selected days</span>
+                  <span className="repeat-summary__label">{t.calendarSelectedDays}</span>
                   {(() => {
                     const selectedSet = new Set([weatherStartDate, ...repeatDates].filter(Boolean));
                     const allSelected = Array.from(selectedSet).sort();
                     
                     if (allSelected.length === 0) {
-                      return <p className="repeat-summary__empty">No dates selected—click days to add them.</p>;
+                      return <p className="repeat-summary__empty">{t.calendarNoDatesSelected}</p>;
                     }
                     
                     return (
@@ -2184,7 +2215,7 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={() => handleRepeatRemove(date)}
-                                aria-label={`Remove ${formattedDate}`}
+                                aria-label={t.removeDate.replace('{date}', formattedDate)}
                               >
                                 ×
                               </button>
@@ -2219,7 +2250,7 @@ export default function App() {
       <div className="cosmic-backdrop" aria-hidden="true" />
 
       <header className="app-header" role="banner">
-        <div className="brand" aria-label="Rain">
+        <div className="brand" aria-label="Rain" onClick={() => window.location.reload()} style={{ cursor: 'pointer' }}>
           <span className="brand__name">
             <span className="brand__letter">R</span>
             <span className="brand__letter brand__letter--animated">A</span>
@@ -2245,8 +2276,19 @@ export default function App() {
       <section className="interface-grid">
         <article className="panel search-panel">
           <header className="panel-header">
-            <h2>{t.searchTitle}</h2>
-            <p>{t.searchDescription}</p>
+            <div className="header-with-badge">
+              <span className="step-badge">1</span>
+              <div>
+                <h2>
+                  {t.searchTitle}
+                  <span className="help-tooltip">
+                    <span className="help-icon">?</span>
+                    <span className="help-bubble">{t.searchLocationHint}</span>
+                  </span>
+                </h2>
+                <p>{t.searchDescription}</p>
+              </div>
+            </div>
           </header>
 
           <form className="search-form" onSubmit={handleSubmit}>
@@ -2369,10 +2411,28 @@ export default function App() {
             </>
           ) : (
             <div className="empty-state">
+              <div className="empty-state-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="currentColor"/>
+                </svg>
+              </div>
               <h3>{t.emptyTitle}</h3>
-              <p>
-                {t.emptyDescription}
-              </p>
+              <p>{t.emptyDescription}</p>
+              
+              <div className="workflow-steps">
+                <div className="workflow-step">
+                  <span className="workflow-number">1</span>
+                  <p>{t.emptySteps[0]}</p>
+                </div>
+                <div className="workflow-step">
+                  <span className="workflow-number">2</span>
+                  <p>{t.emptySteps[1]}</p>
+                </div>
+                <div className="workflow-step">
+                  <span className="workflow-number">3</span>
+                  <p>{t.emptySteps[2]}</p>
+                </div>
+              </div>
             </div>
           )}
         </article>
@@ -2381,10 +2441,21 @@ export default function App() {
       {hasWeatherContext && (
         <section className="panel weather-panel">
           <header className="panel-header">
-            <h2>{t.weatherTitle}</h2>
-            <p>
-              {t.weatherDescription.replace('{location}', weatherPanelLocationLabel)}
-            </p>
+            <div className="header-with-badge">
+              <span className="step-badge">2</span>
+              <div>
+                <h2>
+                  {t.weatherTitle}
+                  <span className="help-tooltip">
+                    <span className="help-icon">?</span>
+                    <span className="help-bubble">{t.nowSelectDates}</span>
+                  </span>
+                </h2>
+                <p>
+                  {t.weatherDescription.replace('{location}', weatherPanelLocationLabel)}
+                </p>
+              </div>
+            </div>
           </header>
 
           <form
@@ -2468,7 +2539,7 @@ export default function App() {
             {weatherMode === 'interval' && (
               <div className="interval-grid" role="group" aria-label="Date and time range">
                 <div className="date-picker-trigger" role="button" tabIndex={0} onClick={() => openCalendar('repeat')} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && openCalendar('repeat')}>
-                  <span className="date-picker-trigger__label">Dates</span>
+                  <span className="date-picker-trigger__label">{t.dates}</span>
                   <span className="date-picker-trigger__value" style={!weatherStartDate && repeatDates.length === 0 ? {opacity: 0.5} : {}}>
                     {weatherStartDate || repeatDates.length > 0
                       ? [weatherStartDate, ...repeatDates].filter(Boolean).map((d) => {
@@ -2478,7 +2549,7 @@ export default function App() {
                       : t.selectDates}
                   </span>
                   <span className="date-picker-trigger__hint">
-                    {weatherStartDate || repeatDates.length > 0 ? `${[weatherStartDate, ...repeatDates].filter(Boolean).length} selected` : ''}
+                    {weatherStartDate || repeatDates.length > 0 ? t.datesSelected.replace('{count}', [weatherStartDate, ...repeatDates].filter(Boolean).length) : ''}
                   </span>
                 </div>
                 
